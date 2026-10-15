@@ -1,7 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Eigene Titelleiste statt System-ActionBar; Abstände zu Status-/Navigationsleiste
+     und Tastatur setzt MainActivity selbst (funktioniert auch mit Android-15-Edge-to-Edge). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#212121"
+    android:orientation="vertical">
+
+    <Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="#212121"
+        android:theme="@android:style/ThemeOverlay.Material.Dark.ActionBar"
+        android:popupTheme="@android:style/ThemeOverlay.Material.Light"
+        android:title="HTML APK Builder"
+        android:titleTextColor="#FFFFFF" />
+
+<ScrollView
+    android:id="@+id/scroll"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:background="#FAFAFA"
     android:fillViewport="true">
 
     <LinearLayout
@@ -78,6 +100,19 @@
                 android:inputType="number"
                 android:importantForAutofill="no" />
         </LinearLayout>
+
+        <EditText
+            android:id="@+id/editFileName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Dateiname der APK (optional)"
+            android:inputType="textNoSuggestions"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:id="@+id/txtFileName"
+            style="@style/Hint"
+            android:text="Leer lassen = App-Name und Version" />
 
         <!-- 3. Icon -->
         <TextView style="@style/Section" android:text="3 · Icon" />
@@ -238,3 +273,4 @@
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
+</LinearLayout>

@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
     private static final String[] ORIENTATION_LABELS = {"Automatisch", "Hochformat", "Querformat"};
     private static final String[] ORIENTATION_VALUES = {"auto", "portrait", "landscape"};
 
-    private EditText editUrl, editName, editPackage, editVersionName, editVersionCode;
+    private EditText editUrl, editName, editPackage, editVersionName, editVersionCode, editFileName;
     private TextView txtContent, txtIcon, txtStatus;
     private ImageView imgIcon;
     private CheckBox chkFullscreen, chkZoom, chkKeepScreenOn;
@@ -80,6 +80,16 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        setActionBar(findViewById(R.id.toolbar));
+
+        // Abstand zu Statusleiste, Navigationsleiste und Tastatur selbst setzen.
+        // Ohne Edge-to-Edge sind diese Werte 0, mit Edge-to-Edge (Android 15+) nicht.
+        View root = findViewById(R.id.root);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets.consumeSystemWindowInsets();
+        });
         prefs = getSharedPreferences("builder", MODE_PRIVATE);
 
         editUrl = findViewById(R.id.editUrl);
@@ -87,6 +97,7 @@ public class MainActivity extends Activity {
         editPackage = findViewById(R.id.editPackage);
         editVersionName = findViewById(R.id.editVersionName);
         editVersionCode = findViewById(R.id.editVersionCode);
+        editFileName = findViewById(R.id.editFileName);
         txtContent = findViewById(R.id.txtContent);
         txtIcon = findViewById(R.id.txtIcon);
         txtStatus = findViewById(R.id.txtStatus);
@@ -113,6 +124,7 @@ public class MainActivity extends Activity {
         editVersionName.setText(prefs.getString("versionName", "1.0"));
         editVersionCode.setText(String.valueOf(prefs.getInt("versionCode", 1)));
         editUrl.setText(prefs.getString("url", ""));
+        editFileName.setText(prefs.getString("fileName", ""));
         chkFullscreen.setChecked(prefs.getBoolean("fullscreen", false));
         chkZoom.setChecked(prefs.getBoolean("zoom", false));
         chkKeepScreenOn.setChecked(prefs.getBoolean("keepScreenOn", false));
@@ -314,6 +326,7 @@ public class MainActivity extends Activity {
         final String url = editUrl.getText().toString().trim();
         final String name = editName.getText().toString().trim();
         final String pkg = editPackage.getText().toString().trim();
+        final String customFileName = editFileName.getText().toString().trim();
         final String versionName = editVersionName.getText().toString().trim().isEmpty()
                 ? "1.0" : editVersionName.getText().toString().trim();
         final int versionCode;
@@ -370,7 +383,7 @@ public class MainActivity extends Activity {
         prefs.edit()
                 .putString("name", name).putString("package", pkg)
                 .putString("versionName", versionName).putInt("versionCode", versionCode)
-                .putString("url", url).putBoolean("fullscreen", fullscreen)
+                .putString("url", url).putString("fileName", customFileName).putBoolean("fullscreen", fullscreen)
                 .putBoolean("zoom", zoom).putInt("orientation", orientationIdx)
                 .putBoolean("keepScreenOn", keepScreenOn)
                 .putBoolean("permInternet", chkPermInternet.isChecked())
@@ -387,7 +400,7 @@ public class MainActivity extends Activity {
             try {
                 File apk = build(url, content, name, pkg, versionName, versionCode,
                         fullscreen, zoom, keepScreenOn, ORIENTATION_VALUES[orientationIdx],
-                        remove, icon);
+                        remove, icon, customFileName);
                 ui.post(() -> {
                     lastApk = apk;
                     setBusy(false);
@@ -407,7 +420,7 @@ public class MainActivity extends Activity {
     private File build(String url, Uri content, String name, String pkg, String versionName,
                        int versionCode, boolean fullscreen, boolean zoom, boolean keepScreenOn,
                        String orientation, java.util.Set<String> removePermissions,
-                       Bitmap icon) throws Exception {
+                       Bitmap icon, String customFileName) throws Exception {
         File work = new File(getCacheDir(), "work");
         work.mkdirs();
 
@@ -461,12 +474,24 @@ public class MainActivity extends Activity {
         File outDir = OutputProvider.outputDir(this);
         File[] old = outDir.listFiles();
         if (old != null) for (File f : old) f.delete();
-        String fileName = name.replaceAll("[^A-Za-z0-9äöüÄÖÜß _.-]", "").trim().replace(' ', '_');
-        if (fileName.isEmpty()) fileName = "app";
-        File signed = new File(outDir, fileName + "-" + versionName + ".apk");
+        File signed = new File(outDir, apkFileName(customFileName, name, versionName));
         ApkSigning.sign(unsigned, signed, key);
         unsigned.delete();
         return signed;
+    }
+
+    /** Eigener Dateiname oder "<App-Name>-<Version>.apk"; unerlaubte Zeichen werden ersetzt. */
+    static String apkFileName(String custom, String appName, String versionName) {
+        String base = custom == null ? "" : custom.trim();
+        if (base.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+            base = base.substring(0, base.length() - 4).trim();
+        }
+        if (base.isEmpty()) base = appName + "-" + versionName;
+        base = base.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").replace(' ', '_');
+        while (base.startsWith(".")) base = base.substring(1);
+        if (base.length() > 100) base = base.substring(0, 100);
+        if (base.isEmpty()) base = "app";
+        return base + ".apk";
     }
 
     private File keyFile() {

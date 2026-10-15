@@ -84,7 +84,22 @@ public class MainActivity extends Activity {
         }
 
         webView = new WebView(this);
-        setContentView(webView);
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.setBackgroundColor(0xFFFFFFFF);
+        root.addView(webView);
+        setContentView(root);
+        // Android 15+ zeichnet sonst unter Status- und Navigationsleiste.
+        // Im Vollbild sollen die Inhalte bewusst den ganzen Bildschirm nutzen.
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            if (fullscreen) {
+                v.setPadding(0, 0, 0, insets.getSystemWindowInsetBottom() > 200
+                        ? insets.getSystemWindowInsetBottom() : 0); // nur Tastatur
+            } else {
+                v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            }
+            return insets.consumeSystemWindowInsets();
+        });
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);

@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private static final int REQ_EXPORT_KEY = 4;
     private static final int REQ_IMPORT_KEY = 5;
     private static final int REQ_CROP = 6;
+    private static final int REQ_EXPORT_PROJECT = 7;
 
     private static final String[] ORIENTATION_LABELS = {"Automatisch", "Hochformat", "Querformat"};
     private static final String[] ORIENTATION_VALUES = {"auto", "portrait", "landscape"};
@@ -349,6 +350,7 @@ public class MainActivity extends Activity {
         menu.add(0, 5, 0, "Info")
                 .setIcon(R.drawable.ic_info)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        menu.add(0, 7, 0, "Projekt exportieren");
         menu.add(0, 6, 0, "Projekt löschen");
         menu.add(0, 1, 0, "Signaturschlüssel sichern");
         menu.add(0, 2, 0, "Signaturschlüssel importieren");
@@ -381,6 +383,15 @@ public class MainActivity extends Activity {
             case 5:
                 startActivity(new Intent(this, InfoActivity.class));
                 return true;
+            case 7: {
+                saveFieldsToProject();
+                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("application/zip");
+                i.putExtra(Intent.EXTRA_TITLE, ProjectArchive.exportFileName(project.displayName()));
+                startForResult(i, REQ_EXPORT_PROJECT);
+                return true;
+            }
             case 6:
                 new AlertDialog.Builder(this)
                         .setTitle("„" + project.displayName() + "“ löschen?")
@@ -466,6 +477,20 @@ public class MainActivity extends Activity {
             case REQ_SAVE_APK:
                 copyFileTo(lastApk, uri, "APK gespeichert");
                 break;
+            case REQ_EXPORT_PROJECT: {
+                final File dir = project.dir();
+                final String label = project.displayName();
+                worker.execute(() -> {
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        if (out == null) throw new IOException("Ziel nicht beschreibbar");
+                        ProjectArchive.exportProject(dir, out);
+                        ui.post(() -> toast("„" + label + "“ exportiert"));
+                    } catch (Exception e) {
+                        ui.post(() -> toast("Export fehlgeschlagen: " + e.getMessage()));
+                    }
+                });
+                break;
+            }
             case REQ_EXPORT_KEY:
                 copyFileTo(keyFile(), uri, "Schlüssel gesichert (Passwort: htmlapk)");
                 break;

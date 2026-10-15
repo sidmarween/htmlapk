@@ -59,6 +59,7 @@ public final class Project {
         return r;
     }
 
+    public File dir() { return dir; }
     public File contentFile() { return new File(dir, "content.bin"); }
     public File iconFile() { return new File(dir, "icon.png"); }
     public File iconSourceFile() { return new File(dir, "icon_source"); }

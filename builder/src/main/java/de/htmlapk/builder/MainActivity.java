@@ -195,6 +195,9 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0, 5, 0, "Info")
+                .setIcon(R.drawable.ic_info)
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         menu.add(0, 4, 0, "Neue App");
         menu.add(0, 1, 0, "Signaturschlüssel sichern");
         menu.add(0, 2, 0, "Signaturschlüssel importieren");
@@ -224,6 +227,9 @@ public class MainActivity extends Activity {
                 startForResult(i, REQ_IMPORT_KEY);
                 return true;
             }
+            case 5:
+                startActivity(new Intent(this, InfoActivity.class));
+                return true;
             case 4:
                 resetForNewApp();
                 return true;
@@ -528,7 +534,7 @@ public class MainActivity extends Activity {
         editVersionName.setText("1.0");
         editVersionCode.setText("1");
         iconBitmap = null;
-        imgIcon.setImageResource(R.mipmap.ic_launcher);
+        imgIcon.setImageResource(R.drawable.default_app_icon);
         txtIcon.setText("Ohne Auswahl bekommt die App das Standard-Icon.");
         resultButtons.setVisibility(View.GONE);
         lastApk = null;

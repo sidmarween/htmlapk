@@ -20,6 +20,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".InfoActivity"
+            android:exported="false"
+            android:label="Info" />
+
         <provider
             android:name=".OutputProvider"
             android:authorities="de.htmlapk.builder.output"

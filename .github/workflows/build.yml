@@ -8,29 +8,36 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.7'
 
       - name: Tests der Kernlogik
-        run: gradle :builder:testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          gradle :builder:testDebugUnitTest --stacktrace 2>&1 | tee -a build-log.txt
 
       - name: Testweise erzeugte App mit den offiziellen Tools prüfen
         run: |
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/aapt2" dump badging builder/build/test-output/sample.apk | head -6
-          "$BT/apksigner" verify --verbose builder/build/test-output/sample.apk
-          "$BT/zipalign" -c -p 4 builder/build/test-output/sample.apk && echo "zipalign OK"
+          set -o pipefail
+          {
+            BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+            "$BT/aapt2" dump badging builder/build/test-output/sample.apk | head -6
+            "$BT/apksigner" verify --verbose builder/build/test-output/sample.apk
+            "$BT/zipalign" -c -p 4 builder/build/test-output/sample.apk && echo "zipalign OK"
+          } 2>&1 | tee -a build-log.txt
 
       - name: Builder-App bauen (enthält die Vorlage)
-        run: gradle :builder:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle :builder:assembleDebug --stacktrace 2>&1 | tee -a build-log.txt
 
       - name: Vorlage prüfen
         run: |
@@ -43,3 +50,18 @@ jobs:
           path: |
             builder/build/outputs/apk/debug/builder-debug.apk
             builder/build/test-output/sample.apk
+
+      # Fehler als Hinweis ausgeben, damit sie auch ohne Log-Download lesbar sind
+      - name: Fehler zusammenfassen
+        if: failure()
+        run: |
+          touch build-log.txt
+          for x in builder/build/test-results/*/*.xml; do
+            [ -f "$x" ] && grep -A15 "<failure" "$x" >> build-log.txt || true
+          done
+          msg=$(grep -E -B2 -A12 "What went wrong|FAILED|error:|Exception|AssertionError|<failure" build-log.txt | head -120 | cut -c1-300)
+          [ -z "$msg" ] && msg=$(tail -60 build-log.txt)
+          msg="${msg//'%'/'%25'}"
+          msg="${msg//$'\r'/'%0D'}"
+          msg="${msg//$'\n'/'%0A'}"
+          echo "::error title=Build-Fehler::${msg:0:12000}"

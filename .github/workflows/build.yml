@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -50,6 +53,17 @@ jobs:
           path: |
             builder/build/outputs/apk/debug/builder-debug.apk
             builder/build/test-output/sample.apk
+
+      - name: Als Release veröffentlichen
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp builder/build/outputs/apk/debug/builder-debug.apk HtmlApkBuilder.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest HtmlApkBuilder.apk \
+            --title "HTML APK Builder (neuester Build)" \
+            --notes "Automatisch gebaut aus ${GITHUB_SHA::7}. HtmlApkBuilder.apk herunterladen und auf dem Handy installieren."
 
       # Fehler als Hinweis ausgeben, damit sie auch ohne Log-Download lesbar sind
       - name: Fehler zusammenfassen

@@ -1,0 +1,45 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Tests der Kernlogik
+        run: gradle :builder:testDebugUnitTest --stacktrace
+
+      - name: Testweise erzeugte App mit den offiziellen Tools prüfen
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging builder/build/test-output/sample.apk | head -6
+          "$BT/apksigner" verify --verbose builder/build/test-output/sample.apk
+          "$BT/zipalign" -c -p 4 builder/build/test-output/sample.apk && echo "zipalign OK"
+
+      - name: Builder-App bauen (enthält die Vorlage)
+        run: gradle :builder:assembleDebug --stacktrace
+
+      - name: Vorlage prüfen
+        run: |
+          unzip -l template/build/outputs/apk/release/template-release-unsigned.apk
+          unzip -l builder/build/outputs/apk/debug/builder-debug.apk | grep template.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HtmlApkBuilder
+          path: |
+            builder/build/outputs/apk/debug/builder-debug.apk
+            builder/build/test-output/sample.apk

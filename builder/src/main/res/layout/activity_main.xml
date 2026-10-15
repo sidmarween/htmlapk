@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 1. Inhalt -->
+        <TextView style="@style/Section" android:text="1 · Inhalt" />
+
+        <Button
+            android:id="@+id/btnPickContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ZIP oder HTML-Datei wählen" />
+
+        <TextView
+            android:id="@+id/txtContent"
+            style="@style/Hint"
+            android:text="Noch nichts gewählt. Eine ZIP sollte eine index.html enthalten." />
+
+        <EditText
+            android:id="@+id/editUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="…oder Website-URL (https://…)"
+            android:inputType="textUri"
+            android:importantForAutofill="no" />
+
+        <!-- 2. App-Daten -->
+        <TextView style="@style/Section" android:text="2 · App-Daten" />
+
+        <EditText
+            android:id="@+id/editName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="App-Name"
+            android:inputType="textCapSentences"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/editPackage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Paketname (z. B. com.meinname.meinspiel)"
+            android:inputType="textNoSuggestions"
+            android:importantForAutofill="no" />
+
+        <TextView
+            style="@style/Hint"
+            android:text="Der Paketname ist die eindeutige ID der App. Für Updates muss er gleich bleiben." />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/editVersionName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Version (1.0)"
+                android:inputType="text"
+                android:importantForAutofill="no" />
+
+            <EditText
+                android:id="@+id/editVersionCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Versionsnummer (1)"
+                android:inputType="number"
+                android:importantForAutofill="no" />
+        </LinearLayout>
+
+        <!-- 3. Icon -->
+        <TextView style="@style/Section" android:text="3 · Icon" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/imgIcon"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_marginEnd="12dp"
+                android:contentDescription="Icon-Vorschau"
+                android:scaleType="fitCenter"
+                android:src="@mipmap/ic_launcher" />
+
+            <Button
+                android:id="@+id/btnPickIcon"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Bild wählen (quadratisch)" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtIcon"
+            style="@style/Hint"
+            android:text="Ohne Auswahl bekommt die App das Standard-Icon." />
+
+        <!-- 4. Optionen -->
+        <TextView style="@style/Section" android:text="4 · Optionen" />
+
+        <CheckBox
+            android:id="@+id/chkFullscreen"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Vollbild (Statusleiste ausblenden)" />
+
+        <CheckBox
+            android:id="@+id/chkZoom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Zoomen mit zwei Fingern erlauben" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ausrichtung:" />
+
+            <Spinner
+                android:id="@+id/spinOrientation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <!-- Bauen -->
+        <Button
+            android:id="@+id/btnBuild"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="20dp"
+            android:backgroundTint="#E8622C"
+            android:text="APK bauen"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp" />
+
+        <ProgressBar
+            android:id="@+id/progress"
+            style="@android:style/Widget.Material.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/txtStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textIsSelectable="true" />
+
+        <LinearLayout
+            android:id="@+id/resultButtons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnInstall"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Installieren" />
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Speichern" />
+
+            <Button
+                android:id="@+id/btnShare"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Teilen" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

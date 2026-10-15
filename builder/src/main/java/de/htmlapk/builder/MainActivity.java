@@ -71,6 +71,8 @@ public class MainActivity extends Activity {
     private Bitmap iconBitmap;
     private File lastApk;
     private boolean packageEditedByUser;
+    private boolean nameEditedByUser;
+    private boolean settingNameAutomatically;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -120,12 +122,9 @@ public class MainActivity extends Activity {
                 android.R.layout.simple_spinner_dropdown_item, ORIENTATION_LABELS));
 
         // Letzte Eingaben wiederherstellen
-        editName.setText(prefs.getString("name", ""));
-        editPackage.setText(prefs.getString("package", ""));
-        editVersionName.setText(prefs.getString("versionName", "1.0"));
-        editVersionCode.setText(String.valueOf(prefs.getInt("versionCode", 1)));
-        editUrl.setText(prefs.getString("url", ""));
-        editFileName.setText(prefs.getString("fileName", ""));
+        // App-bezogene Felder starten leer; nur Optionen und Berechtigungen bleiben gespeichert
+        editVersionName.setText("1.0");
+        editVersionCode.setText("1");
         chkFullscreen.setChecked(prefs.getBoolean("fullscreen", false));
         chkZoom.setChecked(prefs.getBoolean("zoom", false));
         chkKeepScreenOn.setChecked(prefs.getBoolean("keepScreenOn", false));
@@ -136,15 +135,35 @@ public class MainActivity extends Activity {
         chkPermVibrate.setChecked(prefs.getBoolean("permVibrate", false));
         spinOrientation.setSelection(prefs.getInt("orientation", 0));
         // Nur als "selbst geändert" werten, wenn der Paketname nicht dem Vorschlag entspricht
-        String restoredPkg = editPackage.getText().toString().trim();
-        packageEditedByUser = !restoredPkg.isEmpty()
-                && !restoredPkg.equals(WebProject.suggestPackage(editName.getText().toString()));
-        showVersionHint(restoredPkg);
+        packageEditedByUser = false;
+        showVersionHint("");
 
         // Paketname automatisch aus dem App-Namen vorschlagen, bis der Nutzer ihn selbst ändert
+        // URL eingegeben: gewählte Datei verwerfen und Namen aus der Adresse vorschlagen
+        editUrl.addTextChangedListener(new SimpleWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                String url = s.toString().trim();
+                if (url.isEmpty() || !editUrl.hasFocus()) return;
+                if (contentUri != null) {
+                    contentUri = null;
+                    contentName = null;
+                    txtContent.setText("Website-Modus: Es wird die eingegebene URL geladen.");
+                }
+                String suggested = WebProject.suggestAppNameFromUrl(url);
+                if (!nameEditedByUser && suggested != null) {
+                    settingNameAutomatically = true;
+                    editName.setText(suggested);
+                    settingNameAutomatically = false;
+                }
+            }
+        });
+
         editName.addTextChangedListener(new SimpleWatcher() {
             @Override
             public void afterTextChanged(Editable s) {
+                if (!settingNameAutomatically && editName.hasFocus()) nameEditedByUser = true;
+                if (s.toString().trim().isEmpty()) nameEditedByUser = false;
                 if (!packageEditedByUser) {
                     editPackage.setText(WebProject.suggestPackage(s.toString()));
                 }
@@ -273,7 +292,10 @@ public class MainActivity extends Activity {
                 txtContent.setText("Gewählt: " + contentName);
                 editUrl.setText("");
                 // Neue Datei = App-Name aus dem Dateinamen (ohne Versionsnummer am Ende)
+                nameEditedByUser = false;
+                settingNameAutomatically = true;
                 editName.setText(WebProject.suggestAppName(contentName));
+                settingNameAutomatically = false;
                 editFileName.setText("");
                 break;
             case REQ_ICON:
@@ -528,6 +550,7 @@ public class MainActivity extends Activity {
         txtContent.setText("Noch nichts gewählt. Eine ZIP sollte eine index.html enthalten.");
         editUrl.setText("");
         packageEditedByUser = false;
+        nameEditedByUser = false;
         editName.setText("");
         editPackage.setText("");
         editFileName.setText("");

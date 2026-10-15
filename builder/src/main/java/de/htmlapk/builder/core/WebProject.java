@@ -100,6 +100,28 @@ public final class WebProject {
         return stripped.isEmpty() ? n : stripped;
     }
 
+    /**
+     * App-Name aus einer URL: "https://www.t-online.de/" -> "T-online",
+     * "https://spiele.example.com/x" -> "Spiele". null, wenn kein Host erkennbar ist.
+     */
+    public static String suggestAppNameFromUrl(String url) {
+        String u = url == null ? "" : url.trim();
+        u = u.replaceFirst("(?i)^[a-z][a-z0-9+.-]*://", "");
+        int end = u.length();
+        for (char c : new char[]{'/', '?', '#', ':'}) {
+            int i = u.indexOf(c);
+            if (i >= 0 && i < end) end = i;
+        }
+        String host = u.substring(0, end).toLowerCase(java.util.Locale.ROOT);
+        if (host.startsWith("www.")) host = host.substring(4);
+        String[] parts = host.split("\\.");
+        if (parts.length == 0 || parts[0].isEmpty()) return null;
+        String name = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+        if (parts.length >= 3) name = parts[0];   // Subdomain wie "spiele.example.com"
+        if (!name.matches("[a-z0-9-]+") || !name.matches(".*[a-z].*")) return null;
+        return Character.toUpperCase(name.charAt(0)) + name.substring(1);
+    }
+
     /** "1.0" -> "1.1", "2.9" -> "2.10", "3" -> "4", sonst unverändert. */
     public static String nextVersionName(String v) {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*?)(\\d+)$").matcher(v == null ? "" : v.trim());

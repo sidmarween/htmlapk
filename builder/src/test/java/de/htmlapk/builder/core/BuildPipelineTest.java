@@ -185,6 +185,10 @@ public class BuildPipelineTest {
         assertEquals("Spiel", WebProject.suggestAppName("Spiel_v2.1.zip"));
         assertEquals("2048", WebProject.suggestAppName("2048.html"));
         assertEquals("index", WebProject.suggestAppName("index.HTML"));
+        assertEquals("T-online", WebProject.suggestAppNameFromUrl("https://www.t-online.de/"));
+        assertEquals("Spiele", WebProject.suggestAppNameFromUrl("https://spiele.example.com/x?y=1"));
+        assertEquals("Example", WebProject.suggestAppNameFromUrl("http://example.org:8080"));
+        assertEquals(null, WebProject.suggestAppNameFromUrl("https://"));
         assertEquals("1.1", WebProject.nextVersionName("1.0"));
         assertEquals("2.10", WebProject.nextVersionName("2.9"));
         assertEquals("4", WebProject.nextVersionName("3"));

@@ -8,9 +8,6 @@ import com.android.apksig.ApkVerifier;
 
 import org.junit.Test;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -20,8 +17,6 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
-
-import javax.imageio.ImageIO;
 
 /**
  * Durchläuft die komplette Pipeline mit der echten Vorlagen-APK aus :template.
@@ -73,14 +68,7 @@ public class BuildPipelineTest {
         Map<String, int[]> rendered = new LinkedHashMap<>();
         in.icon = (w, h) -> {
             rendered.put(w + "x" + h, new int[]{w, h});
-            BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = img.createGraphics();
-            g.setColor(Color.MAGENTA);
-            g.fillRect(0, 0, w, h);
-            g.dispose();
-            ByteArrayOutputStream o = new ByteArrayOutputStream();
-            ImageIO.write(img, "png", o);
-            return o.toByteArray();
+            return solidPng(w, h);
         };
 
         File unsigned = new File(outDir(), "sample-unsigned.apk");
@@ -112,6 +100,41 @@ public class BuildPipelineTest {
         }
         assertEquals("Fünf Icon-Dichten erwartet: " + rendered.keySet(), 5, rendered.size());
         assertStoredEntriesAligned(signed);
+    }
+
+    /** Einfarbiges RGBA-PNG ohne java.awt (gibt es in Android-Unit-Tests nicht). */
+    private static byte[] solidPng(int w, int h) throws java.io.IOException {
+        ByteArrayOutputStream raw = new ByteArrayOutputStream();
+        for (int y = 0; y < h; y++) {
+            raw.write(0); // Filter "None"
+            for (int x = 0; x < w; x++) {
+                raw.write(0xff); raw.write(0x00); raw.write(0xff); raw.write(0xff);
+            }
+        }
+        ByteArrayOutputStream z = new ByteArrayOutputStream();
+        try (java.util.zip.DeflaterOutputStream d = new java.util.zip.DeflaterOutputStream(z)) {
+            d.write(raw.toByteArray());
+        }
+        java.nio.ByteBuffer ihdr = java.nio.ByteBuffer.allocate(13);
+        ihdr.putInt(w).putInt(h).put((byte) 8).put((byte) 6).put((byte) 0).put((byte) 0).put((byte) 0);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        png.write(new byte[]{(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'});
+        pngChunk(png, "IHDR", ihdr.array());
+        pngChunk(png, "IDAT", z.toByteArray());
+        pngChunk(png, "IEND", new byte[0]);
+        return png.toByteArray();
+    }
+
+    private static void pngChunk(ByteArrayOutputStream out, String type, byte[] data) throws java.io.IOException {
+        java.nio.ByteBuffer len = java.nio.ByteBuffer.allocate(4).putInt(data.length);
+        out.write(len.array());
+        byte[] t = type.getBytes(StandardCharsets.US_ASCII);
+        out.write(t);
+        out.write(data);
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(t);
+        crc.update(data);
+        out.write(java.nio.ByteBuffer.allocate(4).putInt((int) crc.getValue()).array());
     }
 
     /** Android 11+ verlangt 4-Byte-ausgerichtete, unkomprimierte resources.arsc. */

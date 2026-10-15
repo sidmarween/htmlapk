@@ -125,6 +125,12 @@
             android:layout_height="wrap_content"
             android:text="Zoomen mit zwei Fingern erlauben" />
 
+        <CheckBox
+            android:id="@+id/chkKeepScreenOn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bildschirm nicht automatisch ausschalten" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -142,6 +148,39 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1" />
         </LinearLayout>
+
+        <!-- 5. Berechtigungen -->
+        <TextView style="@style/Section" android:text="5 · Berechtigungen" />
+
+        <CheckBox
+            android:id="@+id/chkPermInternet"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Internet / Netzwerk" />
+        <CheckBox
+            android:id="@+id/chkPermMic"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mikrofon" />
+        <CheckBox
+            android:id="@+id/chkPermCamera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Kamera" />
+        <CheckBox
+            android:id="@+id/chkPermLocation"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Standort" />
+        <CheckBox
+            android:id="@+id/chkPermVibrate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Vibration" />
+
+        <TextView
+            style="@style/Hint"
+            android:text="Die App fragt beim ersten Zugriff aus der Webseite nach (z. B. getUserMedia oder navigator.geolocation). Ohne Internet funktionieren nur die mitgelieferten Dateien." />
 
         <!-- Bauen -->
         <Button

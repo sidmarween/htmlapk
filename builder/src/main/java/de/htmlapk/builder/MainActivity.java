@@ -59,7 +59,8 @@ public class MainActivity extends Activity {
     private EditText editUrl, editName, editPackage, editVersionName, editVersionCode;
     private TextView txtContent, txtIcon, txtStatus;
     private ImageView imgIcon;
-    private CheckBox chkFullscreen, chkZoom;
+    private CheckBox chkFullscreen, chkZoom, chkKeepScreenOn;
+    private CheckBox chkPermInternet, chkPermMic, chkPermCamera, chkPermLocation, chkPermVibrate;
     private Spinner spinOrientation;
     private Button btnBuild;
     private ProgressBar progress;
@@ -92,6 +93,12 @@ public class MainActivity extends Activity {
         imgIcon = findViewById(R.id.imgIcon);
         chkFullscreen = findViewById(R.id.chkFullscreen);
         chkZoom = findViewById(R.id.chkZoom);
+        chkKeepScreenOn = findViewById(R.id.chkKeepScreenOn);
+        chkPermInternet = findViewById(R.id.chkPermInternet);
+        chkPermMic = findViewById(R.id.chkPermMic);
+        chkPermCamera = findViewById(R.id.chkPermCamera);
+        chkPermLocation = findViewById(R.id.chkPermLocation);
+        chkPermVibrate = findViewById(R.id.chkPermVibrate);
         spinOrientation = findViewById(R.id.spinOrientation);
         btnBuild = findViewById(R.id.btnBuild);
         progress = findViewById(R.id.progress);
@@ -108,6 +115,12 @@ public class MainActivity extends Activity {
         editUrl.setText(prefs.getString("url", ""));
         chkFullscreen.setChecked(prefs.getBoolean("fullscreen", false));
         chkZoom.setChecked(prefs.getBoolean("zoom", false));
+        chkKeepScreenOn.setChecked(prefs.getBoolean("keepScreenOn", false));
+        chkPermInternet.setChecked(prefs.getBoolean("permInternet", true));
+        chkPermMic.setChecked(prefs.getBoolean("permMic", false));
+        chkPermCamera.setChecked(prefs.getBoolean("permCamera", false));
+        chkPermLocation.setChecked(prefs.getBoolean("permLocation", false));
+        chkPermVibrate.setChecked(prefs.getBoolean("permVibrate", false));
         spinOrientation.setSelection(prefs.getInt("orientation", 0));
         packageEditedByUser = !editPackage.getText().toString().isEmpty();
 
@@ -330,6 +343,26 @@ public class MainActivity extends Activity {
 
         final boolean fullscreen = chkFullscreen.isChecked();
         final boolean zoom = chkZoom.isChecked();
+        final boolean keepScreenOn = chkKeepScreenOn.isChecked();
+        if (!url.isEmpty() && !chkPermInternet.isChecked()) {
+            chkPermInternet.setChecked(true);
+            toast("Für eine Website-URL ist Internet nötig – wurde aktiviert");
+        }
+        final java.util.Set<String> remove = new java.util.HashSet<>();
+        if (!chkPermInternet.isChecked()) {
+            remove.add("android.permission.INTERNET");
+            remove.add("android.permission.ACCESS_NETWORK_STATE");
+        }
+        if (!chkPermMic.isChecked()) {
+            remove.add("android.permission.RECORD_AUDIO");
+            remove.add("android.permission.MODIFY_AUDIO_SETTINGS");
+        }
+        if (!chkPermCamera.isChecked()) remove.add("android.permission.CAMERA");
+        if (!chkPermLocation.isChecked()) {
+            remove.add("android.permission.ACCESS_FINE_LOCATION");
+            remove.add("android.permission.ACCESS_COARSE_LOCATION");
+        }
+        if (!chkPermVibrate.isChecked()) remove.add("android.permission.VIBRATE");
         final int orientationIdx = spinOrientation.getSelectedItemPosition();
         final Uri content = contentUri;
         final Bitmap icon = iconBitmap;
@@ -339,6 +372,12 @@ public class MainActivity extends Activity {
                 .putString("versionName", versionName).putInt("versionCode", versionCode)
                 .putString("url", url).putBoolean("fullscreen", fullscreen)
                 .putBoolean("zoom", zoom).putInt("orientation", orientationIdx)
+                .putBoolean("keepScreenOn", keepScreenOn)
+                .putBoolean("permInternet", chkPermInternet.isChecked())
+                .putBoolean("permMic", chkPermMic.isChecked())
+                .putBoolean("permCamera", chkPermCamera.isChecked())
+                .putBoolean("permLocation", chkPermLocation.isChecked())
+                .putBoolean("permVibrate", chkPermVibrate.isChecked())
                 .apply();
 
         setBusy(true);
@@ -347,7 +386,8 @@ public class MainActivity extends Activity {
         worker.execute(() -> {
             try {
                 File apk = build(url, content, name, pkg, versionName, versionCode,
-                        fullscreen, zoom, ORIENTATION_VALUES[orientationIdx], icon);
+                        fullscreen, zoom, keepScreenOn, ORIENTATION_VALUES[orientationIdx],
+                        remove, icon);
                 ui.post(() -> {
                     lastApk = apk;
                     setBusy(false);
@@ -365,7 +405,8 @@ public class MainActivity extends Activity {
     }
 
     private File build(String url, Uri content, String name, String pkg, String versionName,
-                       int versionCode, boolean fullscreen, boolean zoom, String orientation,
+                       int versionCode, boolean fullscreen, boolean zoom, boolean keepScreenOn,
+                       String orientation, java.util.Set<String> removePermissions,
                        Bitmap icon) throws Exception {
         File work = new File(getCacheDir(), "work");
         work.mkdirs();
@@ -383,10 +424,11 @@ public class MainActivity extends Activity {
         input.manifest.appLabel = name;
         input.manifest.versionName = versionName;
         input.manifest.versionCode = versionCode;
+        input.manifest.removePermissions.addAll(removePermissions);
 
         if (!url.isEmpty()) {
             input.webFiles = null;
-            input.configJson = WebProject.configJson(url, fullscreen, orientation, zoom);
+            input.configJson = WebProject.configJson(url, fullscreen, orientation, zoom, keepScreenOn);
         } else {
             progressText("Dateien lesen …");
             byte[] bytes;
@@ -398,7 +440,7 @@ public class MainActivity extends Activity {
                     ? WebProject.fromZip(new java.io.ByteArrayInputStream(bytes))
                     : WebProject.fromHtml(bytes);
             input.webFiles = web.files;
-            input.configJson = WebProject.configJson(web.startPage, fullscreen, orientation, zoom);
+            input.configJson = WebProject.configJson(web.startPage, fullscreen, orientation, zoom, keepScreenOn);
         }
 
         if (icon != null) {

@@ -96,12 +96,14 @@ public final class WebProject {
         return "com.htmlapk." + n;
     }
 
-    public static String configJson(String start, boolean fullscreen, String orientation, boolean zoom) {
+    public static String configJson(String start, boolean fullscreen, String orientation,
+                                    boolean zoom, boolean keepScreenOn) {
         return "{\n"
                 + "  \"start\": " + jsonString(start) + ",\n"
                 + "  \"fullscreen\": " + fullscreen + ",\n"
                 + "  \"orientation\": " + jsonString(orientation) + ",\n"
-                + "  \"zoom\": " + zoom + "\n"
+                + "  \"zoom\": " + zoom + ",\n"
+                + "  \"keepScreenOn\": " + keepScreenOn + "\n"
                 + "}\n";
     }
 

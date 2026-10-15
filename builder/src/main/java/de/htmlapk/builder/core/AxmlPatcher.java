@@ -23,6 +23,7 @@ public final class AxmlPatcher {
     private static final int RES_STRING_POOL_TYPE = 0x0001;
     private static final int RES_XML_RESOURCE_MAP_TYPE = 0x0180;
     private static final int RES_XML_START_ELEMENT_TYPE = 0x0102;
+    private static final int RES_XML_END_ELEMENT_TYPE = 0x0103;
 
     private static final int UTF8_FLAG = 1 << 8;
     private static final int SORTED_FLAG = 1;
@@ -31,6 +32,7 @@ public final class AxmlPatcher {
     private static final int TYPE_INT_DEC = 0x10;
 
     private static final int ATTR_LABEL = 0x01010001;
+    private static final int ATTR_NAME = 0x01010003;
     private static final int ATTR_VERSION_CODE = 0x0101021b;
     private static final int ATTR_VERSION_NAME = 0x0101021c;
 
@@ -40,6 +42,8 @@ public final class AxmlPatcher {
         public String appLabel;
         public String versionName;
         public Integer versionCode;
+        /** Diese uses-permission-Einträge werden aus dem Manifest entfernt. */
+        public java.util.Set<String> removePermissions = new java.util.HashSet<>();
     }
 
     private AxmlPatcher() {}
@@ -59,6 +63,32 @@ public final class AxmlPatcher {
             pos += size;
         }
         throw new IllegalArgumentException("Kein package-Attribut im Manifest gefunden");
+    }
+
+    /** Alle per uses-permission angeforderten Berechtigungen. */
+    public static List<String> readPermissions(byte[] axml) {
+        Parsed p = parse(axml);
+        ByteBuffer b = ByteBuffer.wrap(p.body).order(ByteOrder.LITTLE_ENDIAN);
+        List<String> out = new ArrayList<>();
+        for (int pos = 0; pos < p.body.length; ) {
+            int type = b.getShort(pos) & 0xffff;
+            int size = b.getInt(pos + 4);
+            if (type == RES_XML_START_ELEMENT_TYPE) {
+                String perm = permissionName(p, b, pos);
+                if (perm != null) out.add(perm);
+            }
+            pos += size;
+        }
+        return out;
+    }
+
+    private static String permissionName(Parsed p, ByteBuffer b, int chunk) {
+        if (!"uses-permission".equals(str(p, b.getInt(chunk + 20)))) return null;
+        for (Attr a : attrs(b, chunk)) {
+            int id = a.name >= 0 && a.name < p.resourceIds.length ? p.resourceIds[a.name] : 0;
+            if (id == ATTR_NAME && a.raw >= 0) return p.strings.get(a.raw);
+        }
+        return null;
     }
 
     public static byte[] patch(byte[] axml, Changes c) {
@@ -110,7 +140,29 @@ public final class AxmlPatcher {
         if (!verNameDone) throw new IllegalStateException("android:versionName nicht in der Vorlage");
         if (!verCodeDone) throw new IllegalStateException("android:versionCode nicht in der Vorlage");
 
-        // 3) Neu zusammensetzen
+        // 3) Nicht gewünschte Berechtigungen entfernen (Start- und End-Knoten)
+        if (!c.removePermissions.isEmpty()) {
+            ByteArrayOutputStream kept = new ByteArrayOutputStream();
+            boolean skipEnd = false;
+            for (int pos = 0; pos < p.body.length; ) {
+                int type = b.getShort(pos) & 0xffff;
+                int size = b.getInt(pos + 4);
+                boolean drop = false;
+                if (type == RES_XML_START_ELEMENT_TYPE) {
+                    String perm = permissionName(p, b, pos);
+                    drop = perm != null && c.removePermissions.contains(perm);
+                    skipEnd = drop;
+                } else if (type == RES_XML_END_ELEMENT_TYPE && skipEnd) {
+                    drop = true;
+                    skipEnd = false;
+                }
+                if (!drop) kept.write(p.body, pos, size);
+                pos += size;
+            }
+            p.body = kept.toByteArray();
+        }
+
+        // 4) Neu zusammensetzen
         byte[] pool = encodePool(p);
         int total = 8 + pool.length + p.body.length;
         ByteBuffer out = ByteBuffer.allocate(total).order(ByteOrder.LITTLE_ENDIAN);

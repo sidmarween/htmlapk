@@ -63,8 +63,10 @@ public class BuildPipelineTest {
         in.manifest.appLabel = "Mein Spiel äöü 🎮";
         in.manifest.versionName = "2.3.1";
         in.manifest.versionCode = 42;
+        in.manifest.removePermissions.add("android.permission.CAMERA");
+        in.manifest.removePermissions.add("android.permission.VIBRATE");
         in.webFiles = web.files;
-        in.configJson = WebProject.configJson(web.startPage, true, "landscape", false);
+        in.configJson = WebProject.configJson(web.startPage, true, "landscape", false, true);
         Map<String, int[]> rendered = new LinkedHashMap<>();
         in.icon = (w, h) -> {
             rendered.put(w + "x" + h, new int[]{w, h});
@@ -90,12 +92,18 @@ public class BuildPipelineTest {
         try (ZipFile z = new ZipFile(signed)) {
             byte[] manifest = ApkAssembler.readAll(z.getInputStream(z.getEntry("AndroidManifest.xml")));
             assertEquals("com.example.meinspiel", AxmlPatcher.readPackageName(manifest));
+            java.util.List<String> perms = AxmlPatcher.readPermissions(manifest);
+            assertTrue("INTERNET fehlt: " + perms, perms.contains("android.permission.INTERNET"));
+            assertTrue("RECORD_AUDIO fehlt: " + perms, perms.contains("android.permission.RECORD_AUDIO"));
+            assertTrue("CAMERA nicht entfernt: " + perms, !perms.contains("android.permission.CAMERA"));
+            assertTrue("VIBRATE nicht entfernt: " + perms, !perms.contains("android.permission.VIBRATE"));
             assertNotNull(z.getEntry("assets/www/index.html"));
             assertNotNull(z.getEntry("assets/www/js/app.js"));
             assertTrue(z.getEntry("assets/www/js/app.js") != null);
             String cfg = new String(ApkAssembler.readAll(z.getInputStream(z.getEntry("assets/htmlapk.json"))),
                     StandardCharsets.UTF_8);
             assertTrue(cfg.contains("\"landscape\""));
+            assertTrue(cfg.contains("\"keepScreenOn\": true"));
             assertEquals(ZipEntry.STORED, z.getEntry("resources.arsc").getMethod());
         }
         assertEquals("Fünf Icon-Dichten erwartet: " + rendered.keySet(), 5, rendered.size());

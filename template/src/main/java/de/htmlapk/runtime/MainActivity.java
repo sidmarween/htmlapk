@@ -4,14 +4,19 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.Manifest;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.GeolocationPermissions;
 import android.webkit.MimeTypeMap;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -25,9 +30,14 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Laufzeit der erzeugten Apps: ein Vollbild-WebView, der die HTML-Dateien aus
@@ -42,11 +52,19 @@ public class MainActivity extends Activity {
     private static final String ASSET_HOST = "appassets.androidplatform.net";
     private static final String ASSET_BASE = "https://" + ASSET_HOST + "/";
     private static final int REQ_FILE_CHOOSER = 1001;
+    private static final int REQ_PERMISSIONS = 1002;
 
     private WebView webView;
     private String startHost;
     private boolean fullscreen;
     private ValueCallback<Uri[]> pendingFileCallback;
+
+    // Offene Anfragen der Webseite, während Android den Nutzer fragt
+    private PermissionRequest pendingMedia;
+    private String[] pendingMediaResources;
+    private String pendingGeoOrigin;
+    private GeolocationPermissions.Callback pendingGeoCallback;
+    private Set<String> declaredPermissions;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -61,6 +79,9 @@ public class MainActivity extends Activity {
             getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                     WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
+        if (config.optBoolean("keepScreenOn", false)) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
 
         webView = new WebView(this);
         setContentView(webView);
@@ -74,6 +95,8 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setAllowFileAccess(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        s.setGeolocationEnabled(isDeclared(Manifest.permission.ACCESS_FINE_LOCATION)
+                || isDeclared(Manifest.permission.ACCESS_COARSE_LOCATION));
         boolean zoom = config.optBoolean("zoom", false);
         s.setSupportZoom(zoom);
         s.setBuiltInZoomControls(zoom);
@@ -155,6 +178,104 @@ public class MainActivity extends Activity {
             return;
         }
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    // ------------------------------------------------------- Berechtigungen
+
+    /** Steht die Berechtigung im Manifest? (Der Builder entfernt nicht gewählte.) */
+    private boolean isDeclared(String permission) {
+        if (declaredPermissions == null) {
+            declaredPermissions = new HashSet<>();
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(),
+                        PackageManager.GET_PERMISSIONS);
+                if (pi.requestedPermissions != null) {
+                    declaredPermissions.addAll(Arrays.asList(pi.requestedPermissions));
+                }
+            } catch (PackageManager.NameNotFoundException ignored) {
+            }
+        }
+        return declaredPermissions.contains(permission);
+    }
+
+    private boolean isGranted(String permission) {
+        return Build.VERSION.SDK_INT < 23
+                || checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private static String androidPermissionFor(String webResource) {
+        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(webResource)) {
+            return Manifest.permission.RECORD_AUDIO;
+        }
+        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(webResource)) {
+            return Manifest.permission.CAMERA;
+        }
+        return null; // andere Ressourcen (z. B. DRM, MIDI) werden nicht freigegeben
+    }
+
+    /** Mikrofon/Kamera für getUserMedia() */
+    private void handleMediaRequest(PermissionRequest request) {
+        List<String> allowed = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String res : request.getResources()) {
+            String perm = androidPermissionFor(res);
+            if (perm == null || !isDeclared(perm)) continue;
+            allowed.add(res);
+            if (!isGranted(perm)) missing.add(perm);
+        }
+        if (allowed.isEmpty()) {
+            request.deny();
+            return;
+        }
+        if (missing.isEmpty()) {
+            request.grant(allowed.toArray(new String[0]));
+            return;
+        }
+        if (pendingMedia != null) pendingMedia.deny();
+        pendingMedia = request;
+        pendingMediaResources = allowed.toArray(new String[0]);
+        requestPermissions(missing.toArray(new String[0]), REQ_PERMISSIONS);
+    }
+
+    /** Standort für navigator.geolocation */
+    private void handleGeoRequest(String origin, GeolocationPermissions.Callback callback) {
+        String fine = Manifest.permission.ACCESS_FINE_LOCATION;
+        String coarse = Manifest.permission.ACCESS_COARSE_LOCATION;
+        if (!isDeclared(fine) && !isDeclared(coarse)) {
+            callback.invoke(origin, false, false);
+            return;
+        }
+        if (isGranted(fine) || isGranted(coarse)) {
+            callback.invoke(origin, true, false);
+            return;
+        }
+        if (pendingGeoCallback != null) pendingGeoCallback.invoke(pendingGeoOrigin, false, false);
+        pendingGeoOrigin = origin;
+        pendingGeoCallback = callback;
+        requestPermissions(new String[]{fine, coarse}, REQ_PERMISSIONS);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != REQ_PERMISSIONS) return;
+        if (pendingMedia != null) {
+            List<String> granted = new ArrayList<>();
+            for (String res : pendingMediaResources) {
+                if (isGranted(androidPermissionFor(res))) granted.add(res);
+            }
+            if (granted.isEmpty()) pendingMedia.deny();
+            else pendingMedia.grant(granted.toArray(new String[0]));
+            pendingMedia = null;
+            pendingMediaResources = null;
+        }
+        if (pendingGeoCallback != null) {
+            boolean ok = isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
+                    || isGranted(Manifest.permission.ACCESS_COARSE_LOCATION);
+            pendingGeoCallback.invoke(pendingGeoOrigin, ok, false);
+            pendingGeoCallback = null;
+            pendingGeoOrigin = null;
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -288,6 +409,17 @@ public class MainActivity extends Activity {
     }
 
     private class AppChromeClient extends WebChromeClient {
+        @Override
+        public void onPermissionRequest(PermissionRequest request) {
+            runOnUiThread(() -> handleMediaRequest(request));
+        }
+
+        @Override
+        public void onGeolocationPermissionsShowPrompt(String origin,
+                                                       GeolocationPermissions.Callback callback) {
+            runOnUiThread(() -> handleGeoRequest(origin, callback));
+        }
+
         @Override
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
                                          FileChooserParams params) {

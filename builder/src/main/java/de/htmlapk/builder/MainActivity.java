@@ -29,6 +29,7 @@ import android.widget.ProgressBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.Toolbar;
 
 import de.htmlapk.builder.core.ApkAssembler;
 import de.htmlapk.builder.core.ApkSigning;
@@ -42,17 +43,25 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/** Projekt-Editor: alle Eingaben werden im Projekt gespeichert und beim Öffnen wiederhergestellt. */
 public class MainActivity extends Activity {
+
+    public static final String EXTRA_PROJECT_ID = "projectId";
 
     private static final int REQ_CONTENT = 1;
     private static final int REQ_ICON = 2;
-    private static final int REQ_CROP = 6;
     private static final int REQ_SAVE_APK = 3;
     private static final int REQ_EXPORT_KEY = 4;
     private static final int REQ_IMPORT_KEY = 5;
+    private static final int REQ_CROP = 6;
 
     private static final String[] ORIENTATION_LABELS = {"Automatisch", "Hochformat", "Querformat"};
     private static final String[] ORIENTATION_VALUES = {"auto", "portrait", "landscape"};
@@ -66,16 +75,13 @@ public class MainActivity extends Activity {
     private Button btnBuild, btnCropIcon;
     private ProgressBar progress;
     private LinearLayout resultButtons;
+    private Toolbar toolbar;
 
-    private Uri contentUri;
-    private String contentName;
-    private Bitmap iconBitmap;
-    private Uri iconSourceUri;
-    private String iconSourceName;
+    private Project project;
     private File lastApk;
-    private boolean packageEditedByUser;
-    private boolean nameEditedByUser;
-    private boolean settingNameAutomatically;
+    private boolean loading;                 // Felder werden gerade aus dem Projekt gefüllt
+    private boolean settingAutomatically;    // Feld wird vom Programm (nicht vom Nutzer) gesetzt
+    private boolean building;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -85,10 +91,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        setActionBar(findViewById(R.id.toolbar));
+        toolbar = findViewById(R.id.toolbar);
+        setActionBar(toolbar);
+        toolbar.setNavigationIcon(R.drawable.ic_back);
+        toolbar.setNavigationOnClickListener(v -> finish());
 
-        // Abstand zu Statusleiste, Navigationsleiste und Tastatur selbst setzen.
-        // Ohne Edge-to-Edge sind diese Werte 0, mit Edge-to-Edge (Android 15+) nicht.
         View root = findViewById(R.id.root);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
@@ -96,6 +103,9 @@ public class MainActivity extends Activity {
             return insets.consumeSystemWindowInsets();
         });
         prefs = getSharedPreferences("builder", MODE_PRIVATE);
+
+        project = Project.load(this, getIntent().getStringExtra(EXTRA_PROJECT_ID));
+        if (project == null) project = Project.create(this);
 
         editUrl = findViewById(R.id.editUrl);
         editName = findViewById(R.id.editName);
@@ -118,67 +128,15 @@ public class MainActivity extends Activity {
         chkPermVibrate = findViewById(R.id.chkPermVibrate);
         spinOrientation = findViewById(R.id.spinOrientation);
         btnBuild = findViewById(R.id.btnBuild);
+        btnCropIcon = findViewById(R.id.btnCropIcon);
         progress = findViewById(R.id.progress);
         resultButtons = findViewById(R.id.resultButtons);
 
         spinOrientation.setAdapter(new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_dropdown_item, ORIENTATION_LABELS));
 
-        // Letzte Eingaben wiederherstellen
-        // App-bezogene Felder starten leer; nur Optionen und Berechtigungen bleiben gespeichert
-        editVersionName.setText("1.0");
-        editVersionCode.setText("1");
-        chkFullscreen.setChecked(prefs.getBoolean("fullscreen", false));
-        chkZoom.setChecked(prefs.getBoolean("zoom", false));
-        chkKeepScreenOn.setChecked(prefs.getBoolean("keepScreenOn", false));
-        chkPermInternet.setChecked(prefs.getBoolean("permInternet", true));
-        chkPermMic.setChecked(prefs.getBoolean("permMic", false));
-        chkPermCamera.setChecked(prefs.getBoolean("permCamera", false));
-        chkPermLocation.setChecked(prefs.getBoolean("permLocation", false));
-        chkPermVibrate.setChecked(prefs.getBoolean("permVibrate", false));
-        spinOrientation.setSelection(prefs.getInt("orientation", 0));
-        // Nur als "selbst geändert" werten, wenn der Paketname nicht dem Vorschlag entspricht
-        packageEditedByUser = false;
-        showVersionHint("");
-
-        // Paketname automatisch aus dem App-Namen vorschlagen, bis der Nutzer ihn selbst ändert
-        // URL eingegeben: gewählte Datei verwerfen und Namen aus der Adresse vorschlagen
-        editUrl.addTextChangedListener(new SimpleWatcher() {
-            @Override
-            public void afterTextChanged(Editable s) {
-                String url = s.toString().trim();
-                if (url.isEmpty() || !editUrl.hasFocus()) return;
-                if (contentUri != null) {
-                    contentUri = null;
-                    contentName = null;
-                    txtContent.setText("Website-Modus: Es wird die eingegebene URL geladen.");
-                }
-                String suggested = WebProject.suggestAppNameFromUrl(url);
-                if (!nameEditedByUser && suggested != null) {
-                    settingNameAutomatically = true;
-                    editName.setText(suggested);
-                    settingNameAutomatically = false;
-                }
-            }
-        });
-
-        editName.addTextChangedListener(new SimpleWatcher() {
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (!settingNameAutomatically && editName.hasFocus()) nameEditedByUser = true;
-                if (s.toString().trim().isEmpty()) nameEditedByUser = false;
-                if (!packageEditedByUser) {
-                    editPackage.setText(WebProject.suggestPackage(s.toString()));
-                }
-            }
-        });
-        editPackage.addTextChangedListener(new SimpleWatcher() {
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (editPackage.hasFocus()) packageEditedByUser = true;
-                applyVersionForPackage(s.toString().trim());
-            }
-        });
+        installWatchers();
+        loadProjectIntoFields();
 
         findViewById(R.id.btnPickContent).setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -188,7 +146,6 @@ public class MainActivity extends Activity {
                     "application/zip", "application/x-zip-compressed", "text/html", "application/octet-stream"});
             startForResult(i, REQ_CONTENT);
         });
-        btnCropIcon = findViewById(R.id.btnCropIcon);
         btnCropIcon.setOnClickListener(v -> openCropper());
         findViewById(R.id.btnPickIcon).setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -210,9 +167,179 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        if (project != null) saveFieldsToProject();
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
         worker.shutdown();
         super.onDestroy();
+    }
+
+    // ------------------------------------------------- Projekt <-> Felder
+
+    private void loadProjectIntoFields() {
+        loading = true;
+        Project p = project;
+        editFileName.setText(p.apkName);
+        editName.setText(p.name);
+        editPackage.setText(p.pkg);
+        editUrl.setText(p.url);
+        chkFullscreen.setChecked(p.fullscreen);
+        chkZoom.setChecked(p.zoom);
+        chkKeepScreenOn.setChecked(p.keepScreenOn);
+        spinOrientation.setSelection(Math.max(0, Math.min(2, p.orientation)));
+        chkPermInternet.setChecked(p.permInternet);
+        chkPermMic.setChecked(p.permMic);
+        chkPermCamera.setChecked(p.permCamera);
+        chkPermLocation.setChecked(p.permLocation);
+        chkPermVibrate.setChecked(p.permVibrate);
+
+        // Schon gebaut: nächste Version ist automatisch ein Update
+        if (p.lastBuiltCode > 0 && p.versionCode <= p.lastBuiltCode) {
+            p.versionCode = p.lastBuiltCode + 1;
+            p.versionName = WebProject.nextVersionName(p.lastBuiltName);
+        }
+        editVersionName.setText(p.versionName);
+        editVersionCode.setText(String.valueOf(p.versionCode));
+
+        if (!p.url.isEmpty()) {
+            txtContent.setText("Website-Modus: Es wird die eingegebene URL geladen.");
+        } else if (p.hasContent()) {
+            txtContent.setText("Gespeichert: " + (p.contentName != null ? p.contentName : "Webdateien"));
+        }
+
+        Bitmap icon = p.hasIcon() ? BitmapFactory.decodeFile(p.iconFile().getPath()) : null;
+        if (icon != null) {
+            imgIcon.setImageBitmap(icon);
+            txtIcon.setText("Icon: " + (p.iconSourceName != null ? p.iconSourceName : "eigenes Bild"));
+        }
+        btnCropIcon.setVisibility(p.iconSourceFile().isFile() ? View.VISIBLE : View.GONE);
+
+        // Zuletzt gebaute APK wieder anbieten
+        if (p.lastApkFile().isFile() && p.lastBuiltCode > 0) {
+            try {
+                File out = new File(OutputProvider.outputDir(this),
+                        apkFileName(p.apkName, p.displayName(), p.lastBuiltName));
+                clearOutputDir();
+                try (InputStream in = new FileInputStream(p.lastApkFile())) {
+                    Project.copy(in, out);
+                }
+                lastApk = out;
+                resultButtons.setVisibility(View.VISIBLE);
+                status("Zuletzt gebaut: Version " + p.lastBuiltName + " (" + p.lastBuiltCode + ") am "
+                        + new SimpleDateFormat("dd.MM.yyyy, HH:mm", Locale.GERMANY).format(new Date(p.lastBuiltAt)));
+            } catch (IOException ignored) {
+            }
+        }
+        showVersionHint();
+        updateTitle();
+        loading = false;
+    }
+
+    private void saveFieldsToProject() {
+        Project p = project;
+        p.apkName = editFileName.getText().toString().trim();
+        p.name = editName.getText().toString().trim();
+        p.pkg = editPackage.getText().toString().trim();
+        p.url = editUrl.getText().toString().trim();
+        p.versionName = editVersionName.getText().toString().trim();
+        try {
+            p.versionCode = Integer.parseInt(editVersionCode.getText().toString().trim());
+        } catch (NumberFormatException ignored) {
+        }
+        p.fullscreen = chkFullscreen.isChecked();
+        p.zoom = chkZoom.isChecked();
+        p.keepScreenOn = chkKeepScreenOn.isChecked();
+        p.orientation = spinOrientation.getSelectedItemPosition();
+        p.permInternet = chkPermInternet.isChecked();
+        p.permMic = chkPermMic.isChecked();
+        p.permCamera = chkPermCamera.isChecked();
+        p.permLocation = chkPermLocation.isChecked();
+        p.permVibrate = chkPermVibrate.isChecked();
+        p.save();
+    }
+
+    private void updateTitle() {
+        toolbar.setTitle(project.displayName());
+    }
+
+    /**
+     * Automatik: APK-Name -> App-Name -> Paketname. Ein Feld, das der Nutzer selbst
+     * geändert hat, wird nicht mehr überschrieben (bis er es leert).
+     */
+    private void installWatchers() {
+        editFileName.addTextChangedListener(new SimpleWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (loading || settingAutomatically) return;
+                if (!project.nameManual) {
+                    String n = s.toString().trim().replaceAll("(?i)\\.apk$", "").trim();
+                    setAutomatically(editName, n);
+                }
+                updateTitle();
+            }
+        });
+
+        editUrl.addTextChangedListener(new SimpleWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (loading) return;
+                String url = s.toString().trim();
+                if (url.isEmpty() || !editUrl.hasFocus()) return;
+                if (project.hasContent()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    project.contentFile().delete();
+                    project.contentName = null;
+                }
+                txtContent.setText("Website-Modus: Es wird die eingegebene URL geladen.");
+                String suggested = WebProject.suggestAppNameFromUrl(url);
+                if (suggested != null) fillNamesFrom(suggested);
+            }
+        });
+
+        editName.addTextChangedListener(new SimpleWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (loading) return;
+                if (!settingAutomatically && editName.hasFocus()) project.nameManual = true;
+                if (s.toString().trim().isEmpty()) project.nameManual = false;
+                if (!project.packageManual) {
+                    setAutomatically(editPackage, s.toString().trim().isEmpty()
+                            ? "" : WebProject.suggestPackage(s.toString()));
+                }
+                updateTitle();
+            }
+        });
+
+        editPackage.addTextChangedListener(new SimpleWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (loading) return;
+                if (!settingAutomatically && editPackage.hasFocus()) project.packageManual = true;
+                if (s.toString().trim().isEmpty()) project.packageManual = false;
+                // Projekt noch nie gebaut, aber Paket schon bekannt? Dann als Update fortsetzen
+                if (project.lastBuiltCode == 0) applyVersionForPackage(s.toString().trim());
+            }
+        });
+    }
+
+    /** Vorschlag aus Datei oder URL: füllt APK-Name (falls leer) und darüber App-Name/Paket. */
+    private void fillNamesFrom(String suggested) {
+        if (editFileName.getText().toString().trim().isEmpty()) {
+            setAutomatically(editFileName, suggested);
+        }
+        if (!project.nameManual) setAutomatically(editName, suggested);
+        updateTitle();
+    }
+
+    private void setAutomatically(EditText field, String text) {
+        if (field.getText().toString().equals(text)) return;
+        settingAutomatically = true;
+        field.setText(text);
+        settingAutomatically = false;
     }
 
     // -------------------------------------------------------------- Menü
@@ -222,7 +349,7 @@ public class MainActivity extends Activity {
         menu.add(0, 5, 0, "Info")
                 .setIcon(R.drawable.ic_info)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        menu.add(0, 4, 0, "Neue App");
+        menu.add(0, 6, 0, "Projekt löschen");
         menu.add(0, 1, 0, "Signaturschlüssel sichern");
         menu.add(0, 2, 0, "Signaturschlüssel importieren");
         menu.add(0, 3, 0, "Hilfe");
@@ -254,17 +381,30 @@ public class MainActivity extends Activity {
             case 5:
                 startActivity(new Intent(this, InfoActivity.class));
                 return true;
-            case 4:
-                resetForNewApp();
+            case 6:
+                new AlertDialog.Builder(this)
+                        .setTitle("„" + project.displayName() + "“ löschen?")
+                        .setMessage("Das Projekt mit allen gespeicherten Dateien wird entfernt. "
+                                + "Bereits installierte Apps bleiben auf dem Handy.")
+                        .setNegativeButton("Abbrechen", null)
+                        .setPositiveButton("Löschen", (d, w) -> {
+                            project.delete();
+                            project = null;
+                            finish();
+                        })
+                        .show();
                 return true;
             case 3:
                 new AlertDialog.Builder(this)
                         .setTitle("So geht's")
                         .setMessage("1. Wähle eine ZIP mit deinen Webdateien (mit index.html), "
                                 + "eine einzelne HTML-Datei oder gib eine Website-URL ein.\n\n"
-                                + "2. Gib App-Name und Paketname ein. Der Paketname muss für jede App "
-                                + "anders sein und für Updates gleich bleiben.\n\n"
-                                + "3. Für ein Update derselben App erhöhe die Versionsnummer.\n\n"
+                                + "2. Gib einen APK-Namen ein – App-Name und Paketname werden daraus "
+                                + "erzeugt. Der Paketname muss für jede App anders sein und für Updates "
+                                + "gleich bleiben.\n\n"
+                                + "3. Alles wird im Projekt gespeichert. Für ein Update öffnest du das "
+                                + "Projekt wieder und tippst auf „APK bauen“ – die Versionsnummer wird "
+                                + "automatisch erhöht.\n\n"
                                 + "Alle Apps werden mit deinem eigenen Schlüssel signiert. Sichere ihn "
                                 + "über das Menü: Ohne ihn kannst du deine Apps nach einer Neuinstallation "
                                 + "des Builders nicht mehr aktualisieren. Passwort der Schlüsseldatei: htmlapk")
@@ -273,6 +413,19 @@ public class MainActivity extends Activity {
                 return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void finish() {
+        if (project != null) {
+            saveFieldsToProject();
+            // Mit + angelegt und nichts eingetragen: kein leeres Projekt zurücklassen
+            if (project.isBlank()) {
+                project.delete();
+                project = null;
+            }
+        }
+        super.finish();
     }
 
     // ---------------------------------------------------------- Auswahl
@@ -288,29 +441,27 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (project == null) return;
         if (requestCode == REQ_CROP) {
-            if (resultCode == RESULT_OK) loadCroppedIcon();
+            if (resultCode == RESULT_OK) applyCroppedIcon();
             return;
         }
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         switch (requestCode) {
             case REQ_CONTENT:
-                contentUri = uri;
-                contentName = displayName(uri);
-                txtContent.setText("Gewählt: " + contentName);
-                editUrl.setText("");
-                // Neue Datei = App-Name aus dem Dateinamen (ohne Versionsnummer am Ende)
-                nameEditedByUser = false;
-                settingNameAutomatically = true;
-                editName.setText(WebProject.suggestAppName(contentName));
-                settingNameAutomatically = false;
-                editFileName.setText("");
+                storeContent(uri);
                 break;
             case REQ_ICON:
-                iconSourceUri = uri;
-                iconSourceName = displayName(uri);
-                openCropper();
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in == null) throw new IOException("Bild nicht lesbar");
+                    Project.copy(in, project.iconSourceFile());
+                    project.iconSourceName = displayName(uri);
+                    project.save();
+                    openCropper();
+                } catch (IOException e) {
+                    toast("Bild konnte nicht gelesen werden: " + e.getMessage());
+                }
                 break;
             case REQ_SAVE_APK:
                 copyFileTo(lastApk, uri, "APK gespeichert");
@@ -324,24 +475,43 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Kopiert die gewählte HTML/ZIP ins Projekt, damit sie dauerhaft verfügbar bleibt. */
+    private void storeContent(Uri uri) {
+        String fileName = displayName(uri);
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IOException("Datei nicht lesbar");
+            Project.copy(in, project.contentFile());
+        } catch (IOException e) {
+            toast("Datei konnte nicht gelesen werden: " + e.getMessage());
+            return;
+        }
+        project.contentName = fileName;
+        txtContent.setText("Gespeichert: " + fileName);
+        setAutomatically(editUrl, "");
+        fillNamesFrom(WebProject.suggestAppName(fileName));
+        project.save();
+    }
+
     private void openCropper() {
-        if (iconSourceUri == null) return;
+        if (!project.iconSourceFile().isFile()) return;
         Intent i = new Intent(this, CropActivity.class);
-        i.setData(iconSourceUri);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        i.putExtra(CropActivity.EXTRA_PATH, project.iconSourceFile().getPath());
         startActivityForResult(i, REQ_CROP);
     }
 
-    private void loadCroppedIcon() {
-        Bitmap bmp = BitmapFactory.decodeFile(CropActivity.resultFile(this).getPath());
-        if (bmp == null) {
-            toast("Zugeschnittenes Bild konnte nicht geladen werden");
+    private void applyCroppedIcon() {
+        try (InputStream in = new FileInputStream(CropActivity.resultFile(this))) {
+            Project.copy(in, project.iconFile());
+        } catch (IOException e) {
+            toast("Zugeschnittenes Bild konnte nicht gespeichert werden");
             return;
         }
-        iconBitmap = bmp;
-        imgIcon.setImageBitmap(bmp);
-        txtIcon.setText("Icon: " + (iconSourceName != null ? iconSourceName : "eigenes Bild") + " (zugeschnitten)");
+        Bitmap bmp = BitmapFactory.decodeFile(project.iconFile().getPath());
+        if (bmp != null) imgIcon.setImageBitmap(bmp);
+        txtIcon.setText("Icon: " + (project.iconSourceName != null ? project.iconSourceName : "eigenes Bild")
+                + " (zugeschnitten)");
         btnCropIcon.setVisibility(View.VISIBLE);
+        project.save();
     }
 
     private void importKey(Uri uri) {
@@ -360,10 +530,11 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------- Bauen
 
     private void startBuild() {
+        if (building) return;
         final String url = editUrl.getText().toString().trim();
         final String name = editName.getText().toString().trim();
         final String pkg = editPackage.getText().toString().trim();
-        final String customFileName = editFileName.getText().toString().trim();
+        final String apkName = editFileName.getText().toString().trim();
         final String versionName = editVersionName.getText().toString().trim().isEmpty()
                 ? "1.0" : editVersionName.getText().toString().trim();
         final int versionCode;
@@ -374,7 +545,7 @@ public class MainActivity extends Activity {
             editVersionCode.setError("Ganze Zahl ab 1");
             return;
         }
-        if (url.isEmpty() && contentUri == null) {
+        if (url.isEmpty() && !project.hasContent()) {
             toast("Bitte zuerst eine ZIP/HTML-Datei wählen oder eine URL eingeben");
             return;
         }
@@ -390,15 +561,13 @@ public class MainActivity extends Activity {
             editPackage.setError("Ungültig. Beispiel: com.meinname.meinspiel");
             return;
         }
-
-        final boolean fullscreen = chkFullscreen.isChecked();
-        final boolean zoom = chkZoom.isChecked();
-        final boolean keepScreenOn = chkKeepScreenOn.isChecked();
         if (!url.isEmpty() && !chkPermInternet.isChecked()) {
             chkPermInternet.setChecked(true);
             toast("Für eine Website-URL ist Internet nötig – wurde aktiviert");
         }
-        final java.util.Set<String> remove = new java.util.HashSet<>();
+        saveFieldsToProject();
+
+        final Set<String> remove = new HashSet<>();
         if (!chkPermInternet.isChecked()) {
             remove.add("android.permission.INTERNET");
             remove.add("android.permission.ACCESS_NETWORK_STATE");
@@ -413,38 +582,40 @@ public class MainActivity extends Activity {
             remove.add("android.permission.ACCESS_COARSE_LOCATION");
         }
         if (!chkPermVibrate.isChecked()) remove.add("android.permission.VIBRATE");
-        final int orientationIdx = spinOrientation.getSelectedItemPosition();
-        final Uri content = contentUri;
-        final Bitmap icon = iconBitmap;
 
-        prefs.edit()
-                .putString("name", name).putString("package", pkg)
-                .putString("versionName", versionName).putInt("versionCode", versionCode)
-                .putString("url", url).putString("fileName", customFileName).putBoolean("fullscreen", fullscreen)
-                .putBoolean("zoom", zoom).putInt("orientation", orientationIdx)
-                .putBoolean("keepScreenOn", keepScreenOn)
-                .putBoolean("permInternet", chkPermInternet.isChecked())
-                .putBoolean("permMic", chkPermMic.isChecked())
-                .putBoolean("permCamera", chkPermCamera.isChecked())
-                .putBoolean("permLocation", chkPermLocation.isChecked())
-                .putBoolean("permVibrate", chkPermVibrate.isChecked())
-                .apply();
+        final boolean fullscreen = chkFullscreen.isChecked();
+        final boolean zoom = chkZoom.isChecked();
+        final boolean keepScreenOn = chkKeepScreenOn.isChecked();
+        final String orientation = ORIENTATION_VALUES[spinOrientation.getSelectedItemPosition()];
+        final Project p = project;
 
         setBusy(true);
         status("Baue " + name + " …");
 
         worker.execute(() -> {
             try {
-                File apk = build(url, content, name, pkg, versionName, versionCode,
-                        fullscreen, zoom, keepScreenOn, ORIENTATION_VALUES[orientationIdx],
-                        remove, icon, customFileName);
+                File apk = build(p, url, name, pkg, versionName, versionCode,
+                        fullscreen, zoom, keepScreenOn, orientation, remove, apkName);
+                // Im Projekt ablegen, damit sie später wieder installiert/geteilt werden kann
+                try (InputStream in = new FileInputStream(apk)) {
+                    Project.copy(in, p.lastApkFile());
+                }
                 ui.post(() -> {
                     lastApk = apk;
                     setBusy(false);
-                    // Gebaute Version merken: nächster Build desselben Pakets wird ein Update
+                    p.lastBuiltCode = versionCode;
+                    p.lastBuiltName = versionName;
+                    p.lastBuiltAt = System.currentTimeMillis();
+                    // Paket global merken (falls ein anderes Projekt dasselbe Paket nutzt)
                     prefs.edit().putInt("vc:" + pkg, versionCode)
                             .putString("vn:" + pkg, versionName).apply();
-                    applyVersionForPackage(pkg); // Felder schon für das nächste Update vorbereiten
+                    // Felder schon für das nächste Update vorbereiten
+                    loading = true;
+                    editVersionCode.setText(String.valueOf(versionCode + 1));
+                    editVersionName.setText(WebProject.nextVersionName(versionName));
+                    loading = false;
+                    saveFieldsToProject();
+                    showVersionHint();
                     resultButtons.setVisibility(View.VISIBLE);
                     status("Fertig: " + apk.getName() + " (" + (apk.length() / 1024) + " KB)\n"
                             + "Paket " + pkg + ", Version " + versionName + " (" + versionCode + ")");
@@ -458,10 +629,9 @@ public class MainActivity extends Activity {
         });
     }
 
-    private File build(String url, Uri content, String name, String pkg, String versionName,
+    private File build(Project p, String url, String name, String pkg, String versionName,
                        int versionCode, boolean fullscreen, boolean zoom, boolean keepScreenOn,
-                       String orientation, java.util.Set<String> removePermissions,
-                       Bitmap icon, String customFileName) throws Exception {
+                       String orientation, Set<String> removePermissions, String apkName) throws Exception {
         File work = new File(getCacheDir(), "work");
         work.mkdirs();
 
@@ -486,7 +656,7 @@ public class MainActivity extends Activity {
         } else {
             progressText("Dateien lesen …");
             byte[] bytes;
-            try (InputStream in = getContentResolver().openInputStream(content)) {
+            try (InputStream in = new FileInputStream(p.contentFile())) {
                 bytes = ApkAssembler.readAll(in);
             }
             boolean isZip = bytes.length > 4 && bytes[0] == 'P' && bytes[1] == 'K';
@@ -497,6 +667,7 @@ public class MainActivity extends Activity {
             input.configJson = WebProject.configJson(web.startPage, fullscreen, orientation, zoom, keepScreenOn);
         }
 
+        final Bitmap icon = p.hasIcon() ? BitmapFactory.decodeFile(p.iconFile().getPath()) : null;
         if (icon != null) {
             input.icon = (w, h) -> {
                 Bitmap scaled = Bitmap.createScaledBitmap(icon, w, h, true);
@@ -512,21 +683,24 @@ public class MainActivity extends Activity {
 
         progressText("Signieren …");
         SigningKey key = SigningKey.loadOrCreate(keyFile(), "HTML APK Builder");
-        File outDir = OutputProvider.outputDir(this);
-        File[] old = outDir.listFiles();
-        if (old != null) for (File f : old) f.delete();
-        File signed = new File(outDir, apkFileName(customFileName, name, versionName));
+        clearOutputDir();
+        File signed = new File(OutputProvider.outputDir(this), apkFileName(apkName, name, versionName));
         ApkSigning.sign(unsigned, signed, key);
+        //noinspection ResultOfMethodCallIgnored
         unsigned.delete();
         return signed;
     }
 
-    /**
-     * Kennt der Builder den Paketnamen schon, wird die Versionsnummer automatisch
-     * erhöht (sonst lässt sich die neue APK nicht als Update installieren).
-     */
+    private void clearOutputDir() {
+        File[] old = OutputProvider.outputDir(this).listFiles();
+        if (old != null) for (File f : old) //noinspection ResultOfMethodCallIgnored
+            f.delete();
+    }
+
+    /** Projekt noch nie gebaut, Paket aber schon von früher bekannt: als Update weiterzählen. */
     private void applyVersionForPackage(String pkg) {
         int last = prefs.getInt("vc:" + pkg, 0);
+        loading = true;
         if (last > 0) {
             editVersionCode.setText(String.valueOf(last + 1));
             editVersionName.setText(WebProject.nextVersionName(prefs.getString("vn:" + pkg, "1.0")));
@@ -534,45 +708,24 @@ public class MainActivity extends Activity {
             editVersionCode.setText("1");
             editVersionName.setText("1.0");
         }
-        showVersionHint(pkg);
+        loading = false;
+        showVersionHint();
     }
 
-    private void showVersionHint(String pkg) {
-        int last = prefs.getInt("vc:" + pkg, 0);
+    private void showVersionHint() {
+        String pkg = editPackage.getText().toString().trim();
+        int last = project.lastBuiltCode > 0 ? project.lastBuiltCode : prefs.getInt("vc:" + pkg, 0);
+        String lastName = project.lastBuiltCode > 0 ? project.lastBuiltName : prefs.getString("vn:" + pkg, "?");
         txtVersion.setText(last > 0
-                ? "Update: zuletzt gebaut als " + prefs.getString("vn:" + pkg, "?") + " (" + last
-                  + "). Versionsnummer muss größer sein – wurde erhöht."
-                : "Neue App. Für spätere Updates denselben Paketnamen verwenden.");
-    }
-
-    private void resetForNewApp() {
-        contentUri = null;
-        contentName = null;
-        txtContent.setText("Noch nichts gewählt. Eine ZIP sollte eine index.html enthalten.");
-        editUrl.setText("");
-        packageEditedByUser = false;
-        nameEditedByUser = false;
-        editName.setText("");
-        editPackage.setText("");
-        editFileName.setText("");
-        editVersionName.setText("1.0");
-        editVersionCode.setText("1");
-        iconBitmap = null;
-        iconSourceUri = null;
-        iconSourceName = null;
-        btnCropIcon.setVisibility(View.GONE);
-        imgIcon.setImageResource(R.drawable.default_app_icon);
-        txtIcon.setText("Ohne Auswahl bekommt die App das Standard-Icon.");
-        resultButtons.setVisibility(View.GONE);
-        lastApk = null;
-        status("");
-        findViewById(R.id.scroll).scrollTo(0, 0);
+                ? "Update: zuletzt gebaut als " + lastName + " (" + last
+                  + "). Versionsnummer wurde automatisch erhöht."
+                : "Neue App. Für spätere Updates einfach dieses Projekt wieder öffnen.");
     }
 
     /** Eigener Dateiname oder "<App-Name>-<Version>.apk"; unerlaubte Zeichen werden ersetzt. */
     static String apkFileName(String custom, String appName, String versionName) {
         String base = custom == null ? "" : custom.trim();
-        if (base.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+        if (base.toLowerCase(Locale.ROOT).endsWith(".apk")) {
             base = base.substring(0, base.length() - 4).trim();
         }
         if (base.isEmpty()) base = appName + "-" + versionName;
@@ -641,6 +794,7 @@ public class MainActivity extends Activity {
     }
 
     private void setBusy(boolean busy) {
+        building = busy;
         btnBuild.setEnabled(!busy);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
         if (busy) resultButtons.setVisibility(View.GONE);

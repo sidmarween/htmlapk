@@ -81,9 +81,8 @@ public class CropActivity extends Activity {
         });
         setContentView(root);
 
-        Uri uri = getIntent().getData();
         try {
-            cropView.setBitmap(decode(uri));
+            cropView.setBitmap(decode());
         } catch (Exception e) {
             Toast.makeText(this, "Bild konnte nicht gelesen werden", Toast.LENGTH_LONG).show();
             finish();
@@ -119,10 +118,22 @@ public class CropActivity extends Activity {
     }
 
     /** Lädt das Bild verkleinert (max. ~2048 px) und dreht es laut EXIF richtig herum. */
-    private Bitmap decode(Uri uri) throws IOException {
+    public static final String EXTRA_PATH = "path";
+
+    /** Bild aus Intent-Data (content://) oder aus dem Extra "path" (Datei im Projektordner). */
+    private InputStream open() throws IOException {
+        String path = getIntent().getStringExtra(EXTRA_PATH);
+        if (path != null) return new java.io.FileInputStream(path);
+        Uri uri = getIntent().getData();
+        InputStream in = uri == null ? null : getContentResolver().openInputStream(uri);
+        if (in == null) throw new IOException("Kein Bild");
+        return in;
+    }
+
+    private Bitmap decode() throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
+        try (InputStream in = open()) {
             BitmapFactory.decodeStream(in, null, bounds);
         }
         if (bounds.outWidth <= 0) throw new IOException("Kein Bild");
@@ -131,13 +142,13 @@ public class CropActivity extends Activity {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inSampleSize = sample;
         Bitmap bmp;
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
+        try (InputStream in = open()) {
             bmp = BitmapFactory.decodeStream(in, null, opts);
         }
         if (bmp == null) throw new IOException("Unbekanntes Bildformat");
 
         int degrees = 0;
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
+        try (InputStream in = open()) {
             int o = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_NORMAL);
             if (o == ExifInterface.ORIENTATION_ROTATE_90) degrees = 90;

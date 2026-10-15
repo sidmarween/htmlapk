@@ -21,6 +21,11 @@
         </activity>
 
         <activity
+            android:name=".CropActivity"
+            android:exported="false"
+            android:label="Icon zuschneiden" />
+
+        <activity
             android:name=".InfoActivity"
             android:exported="false"
             android:label="Info" />

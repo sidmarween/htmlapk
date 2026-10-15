@@ -137,12 +137,25 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/default_app_icon" />
 
-            <Button
-                android:id="@+id/btnPickIcon"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Bild wählen (quadratisch)" />
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/btnPickIcon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Bild wählen" />
+
+                <Button
+                    android:id="@+id/btnCropIcon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Zuschneiden"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
         <TextView

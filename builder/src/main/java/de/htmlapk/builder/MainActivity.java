@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
 
     private static final int REQ_CONTENT = 1;
     private static final int REQ_ICON = 2;
+    private static final int REQ_CROP = 6;
     private static final int REQ_SAVE_APK = 3;
     private static final int REQ_EXPORT_KEY = 4;
     private static final int REQ_IMPORT_KEY = 5;
@@ -62,13 +63,15 @@ public class MainActivity extends Activity {
     private CheckBox chkFullscreen, chkZoom, chkKeepScreenOn;
     private CheckBox chkPermInternet, chkPermMic, chkPermCamera, chkPermLocation, chkPermVibrate;
     private Spinner spinOrientation;
-    private Button btnBuild;
+    private Button btnBuild, btnCropIcon;
     private ProgressBar progress;
     private LinearLayout resultButtons;
 
     private Uri contentUri;
     private String contentName;
     private Bitmap iconBitmap;
+    private Uri iconSourceUri;
+    private String iconSourceName;
     private File lastApk;
     private boolean packageEditedByUser;
     private boolean nameEditedByUser;
@@ -185,6 +188,8 @@ public class MainActivity extends Activity {
                     "application/zip", "application/x-zip-compressed", "text/html", "application/octet-stream"});
             startForResult(i, REQ_CONTENT);
         });
+        btnCropIcon = findViewById(R.id.btnCropIcon);
+        btnCropIcon.setOnClickListener(v -> openCropper());
         findViewById(R.id.btnPickIcon).setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -283,6 +288,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_CROP) {
+            if (resultCode == RESULT_OK) loadCroppedIcon();
+            return;
+        }
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         switch (requestCode) {
@@ -299,7 +308,9 @@ public class MainActivity extends Activity {
                 editFileName.setText("");
                 break;
             case REQ_ICON:
-                loadIcon(uri);
+                iconSourceUri = uri;
+                iconSourceName = displayName(uri);
+                openCropper();
                 break;
             case REQ_SAVE_APK:
                 copyFileTo(lastApk, uri, "APK gespeichert");
@@ -313,34 +324,24 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void loadIcon(Uri uri) {
-        try {
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            try (InputStream in = getContentResolver().openInputStream(uri)) {
-                BitmapFactory.decodeStream(in, null, bounds);
-            }
-            int sample = 1;
-            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 512) sample *= 2;
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = sample;
-            Bitmap bmp;
-            try (InputStream in = getContentResolver().openInputStream(uri)) {
-                bmp = BitmapFactory.decodeStream(in, null, opts);
-            }
-            if (bmp == null) throw new IOException("Unbekanntes Bildformat");
-            iconBitmap = squareCrop(bmp);
-            imgIcon.setImageBitmap(iconBitmap);
-            txtIcon.setText("Icon: " + displayName(uri));
-        } catch (IOException e) {
-            toast("Bild konnte nicht gelesen werden: " + e.getMessage());
-        }
+    private void openCropper() {
+        if (iconSourceUri == null) return;
+        Intent i = new Intent(this, CropActivity.class);
+        i.setData(iconSourceUri);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(i, REQ_CROP);
     }
 
-    private static Bitmap squareCrop(Bitmap b) {
-        int s = Math.min(b.getWidth(), b.getHeight());
-        if (b.getWidth() == b.getHeight()) return b;
-        return Bitmap.createBitmap(b, (b.getWidth() - s) / 2, (b.getHeight() - s) / 2, s, s);
+    private void loadCroppedIcon() {
+        Bitmap bmp = BitmapFactory.decodeFile(CropActivity.resultFile(this).getPath());
+        if (bmp == null) {
+            toast("Zugeschnittenes Bild konnte nicht geladen werden");
+            return;
+        }
+        iconBitmap = bmp;
+        imgIcon.setImageBitmap(bmp);
+        txtIcon.setText("Icon: " + (iconSourceName != null ? iconSourceName : "eigenes Bild") + " (zugeschnitten)");
+        btnCropIcon.setVisibility(View.VISIBLE);
     }
 
     private void importKey(Uri uri) {
@@ -557,6 +558,9 @@ public class MainActivity extends Activity {
         editVersionName.setText("1.0");
         editVersionCode.setText("1");
         iconBitmap = null;
+        iconSourceUri = null;
+        iconSourceName = null;
+        btnCropIcon.setVisibility(View.GONE);
         imgIcon.setImageResource(R.drawable.default_app_icon);
         txtIcon.setText("Ohne Auswahl bekommt die App das Standard-Icon.");
         resultButtons.setVisibility(View.GONE);

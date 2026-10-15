@@ -179,5 +179,15 @@ public class BuildPipelineTest {
         assertEquals("com.htmlapk.meinspiel", WebProject.suggestPackage("Mein Spiel!"));
         assertEquals("com.htmlapk.grossestrasse", WebProject.suggestPackage("Große Straße"));
         assertEquals("com.htmlapk.app2048", WebProject.suggestPackage("2048"));
+        assertEquals("Lemmy-vs-Gurrrdrun-global", WebProject.suggestAppName("Lemmy-vs-Gurrrdrun-global-10.html"));
+        assertEquals("Lemmy-vs-Gurrrdrun-global", WebProject.suggestAppName("Lemmy-vs-Gurrrdrun-global-9.html"));
+        assertEquals("Mein Spiel", WebProject.suggestAppName("Mein Spiel (3).zip"));
+        assertEquals("Spiel", WebProject.suggestAppName("Spiel_v2.1.zip"));
+        assertEquals("2048", WebProject.suggestAppName("2048.html"));
+        assertEquals("index", WebProject.suggestAppName("index.HTML"));
+        assertEquals("1.1", WebProject.nextVersionName("1.0"));
+        assertEquals("2.10", WebProject.nextVersionName("2.9"));
+        assertEquals("4", WebProject.nextVersionName("3"));
+        assertEquals("beta", WebProject.nextVersionName("beta"));
     }
 }

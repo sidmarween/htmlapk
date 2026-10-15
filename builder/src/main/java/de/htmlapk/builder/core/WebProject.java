@@ -85,6 +85,28 @@ public final class WebProject {
                 && p.matches("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+");
     }
 
+    /**
+     * App-Name aus einem Dateinamen: Endung und Versionsnummer am Ende werden entfernt,
+     * damit neue Versionen derselben Datei denselben Paketnamen bekommen.
+     * "Lemmy-vs-Gurrrdrun-global-10.html" -> "Lemmy-vs-Gurrrdrun-global"
+     */
+    public static String suggestAppName(String fileName) {
+        String n = fileName == null ? "" : fileName.trim();
+        n = n.replaceAll("(?i)\\.(zip|html?)$", "");
+        String stripped = n
+                .replaceAll("\\s*\\(\\d+\\)$", "")                     // "Name (3)"
+                .replaceAll("(?i)[\\s._-]*v?\\d+(\\.\\d+)*$", "")          // "Name-10", "Name_v2.1"
+                .replaceAll("[\\s._-]+$", "");
+        return stripped.isEmpty() ? n : stripped;
+    }
+
+    /** "1.0" -> "1.1", "2.9" -> "2.10", "3" -> "4", sonst unverändert. */
+    public static String nextVersionName(String v) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*?)(\\d+)$").matcher(v == null ? "" : v.trim());
+        if (!m.matches()) return v == null || v.trim().isEmpty() ? "1.0" : v;
+        return m.group(1) + (Long.parseLong(m.group(2)) + 1);
+    }
+
     /** "Mein Spiel!" -> "com.htmlapk.meinspiel" */
     public static String suggestPackage(String appName) {
         String n = Normalizer.normalize(appName == null ? "" : appName, Normalizer.Form.NFD)

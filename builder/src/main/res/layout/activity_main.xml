@@ -101,6 +101,11 @@
                 android:importantForAutofill="no" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/txtVersion"
+            style="@style/Hint"
+            android:text="" />
+
         <EditText
             android:id="@+id/editFileName"
             android:layout_width="match_parent"

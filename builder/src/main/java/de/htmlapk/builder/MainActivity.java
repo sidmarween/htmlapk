@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
     private static final String[] ORIENTATION_VALUES = {"auto", "portrait", "landscape"};
 
     private EditText editUrl, editName, editPackage, editVersionName, editVersionCode, editFileName;
-    private TextView txtContent, txtIcon, txtStatus;
+    private TextView txtContent, txtIcon, txtStatus, txtVersion;
     private ImageView imgIcon;
     private CheckBox chkFullscreen, chkZoom, chkKeepScreenOn;
     private CheckBox chkPermInternet, chkPermMic, chkPermCamera, chkPermLocation, chkPermVibrate;
@@ -101,6 +101,7 @@ public class MainActivity extends Activity {
         txtContent = findViewById(R.id.txtContent);
         txtIcon = findViewById(R.id.txtIcon);
         txtStatus = findViewById(R.id.txtStatus);
+        txtVersion = findViewById(R.id.txtVersion);
         imgIcon = findViewById(R.id.imgIcon);
         chkFullscreen = findViewById(R.id.chkFullscreen);
         chkZoom = findViewById(R.id.chkZoom);
@@ -134,7 +135,11 @@ public class MainActivity extends Activity {
         chkPermLocation.setChecked(prefs.getBoolean("permLocation", false));
         chkPermVibrate.setChecked(prefs.getBoolean("permVibrate", false));
         spinOrientation.setSelection(prefs.getInt("orientation", 0));
-        packageEditedByUser = !editPackage.getText().toString().isEmpty();
+        // Nur als "selbst geändert" werten, wenn der Paketname nicht dem Vorschlag entspricht
+        String restoredPkg = editPackage.getText().toString().trim();
+        packageEditedByUser = !restoredPkg.isEmpty()
+                && !restoredPkg.equals(WebProject.suggestPackage(editName.getText().toString()));
+        showVersionHint(restoredPkg);
 
         // Paketname automatisch aus dem App-Namen vorschlagen, bis der Nutzer ihn selbst ändert
         editName.addTextChangedListener(new SimpleWatcher() {
@@ -142,7 +147,6 @@ public class MainActivity extends Activity {
             public void afterTextChanged(Editable s) {
                 if (!packageEditedByUser) {
                     editPackage.setText(WebProject.suggestPackage(s.toString()));
-                    packageEditedByUser = false;
                 }
             }
         });
@@ -150,6 +154,7 @@ public class MainActivity extends Activity {
             @Override
             public void afterTextChanged(Editable s) {
                 if (editPackage.hasFocus()) packageEditedByUser = true;
+                applyVersionForPackage(s.toString().trim());
             }
         });
 
@@ -190,6 +195,7 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0, 4, 0, "Neue App");
         menu.add(0, 1, 0, "Signaturschlüssel sichern");
         menu.add(0, 2, 0, "Signaturschlüssel importieren");
         menu.add(0, 3, 0, "Hilfe");
@@ -218,6 +224,9 @@ public class MainActivity extends Activity {
                 startForResult(i, REQ_IMPORT_KEY);
                 return true;
             }
+            case 4:
+                resetForNewApp();
+                return true;
             case 3:
                 new AlertDialog.Builder(this)
                         .setTitle("So geht's")
@@ -257,10 +266,9 @@ public class MainActivity extends Activity {
                 contentName = displayName(uri);
                 txtContent.setText("Gewählt: " + contentName);
                 editUrl.setText("");
-                if (editName.getText().toString().trim().isEmpty()) {
-                    String base = contentName.replaceAll("\\.(zip|html?|htm)$", "");
-                    editName.setText(base);
-                }
+                // Neue Datei = App-Name aus dem Dateinamen (ohne Versionsnummer am Ende)
+                editName.setText(WebProject.suggestAppName(contentName));
+                editFileName.setText("");
                 break;
             case REQ_ICON:
                 loadIcon(uri);
@@ -404,6 +412,10 @@ public class MainActivity extends Activity {
                 ui.post(() -> {
                     lastApk = apk;
                     setBusy(false);
+                    // Gebaute Version merken: nächster Build desselben Pakets wird ein Update
+                    prefs.edit().putInt("vc:" + pkg, versionCode)
+                            .putString("vn:" + pkg, versionName).apply();
+                    applyVersionForPackage(pkg); // Felder schon für das nächste Update vorbereiten
                     resultButtons.setVisibility(View.VISIBLE);
                     status("Fertig: " + apk.getName() + " (" + (apk.length() / 1024) + " KB)\n"
                             + "Paket " + pkg + ", Version " + versionName + " (" + versionCode + ")");
@@ -478,6 +490,50 @@ public class MainActivity extends Activity {
         ApkSigning.sign(unsigned, signed, key);
         unsigned.delete();
         return signed;
+    }
+
+    /**
+     * Kennt der Builder den Paketnamen schon, wird die Versionsnummer automatisch
+     * erhöht (sonst lässt sich die neue APK nicht als Update installieren).
+     */
+    private void applyVersionForPackage(String pkg) {
+        int last = prefs.getInt("vc:" + pkg, 0);
+        if (last > 0) {
+            editVersionCode.setText(String.valueOf(last + 1));
+            editVersionName.setText(WebProject.nextVersionName(prefs.getString("vn:" + pkg, "1.0")));
+        } else {
+            editVersionCode.setText("1");
+            editVersionName.setText("1.0");
+        }
+        showVersionHint(pkg);
+    }
+
+    private void showVersionHint(String pkg) {
+        int last = prefs.getInt("vc:" + pkg, 0);
+        txtVersion.setText(last > 0
+                ? "Update: zuletzt gebaut als " + prefs.getString("vn:" + pkg, "?") + " (" + last
+                  + "). Versionsnummer muss größer sein – wurde erhöht."
+                : "Neue App. Für spätere Updates denselben Paketnamen verwenden.");
+    }
+
+    private void resetForNewApp() {
+        contentUri = null;
+        contentName = null;
+        txtContent.setText("Noch nichts gewählt. Eine ZIP sollte eine index.html enthalten.");
+        editUrl.setText("");
+        packageEditedByUser = false;
+        editName.setText("");
+        editPackage.setText("");
+        editFileName.setText("");
+        editVersionName.setText("1.0");
+        editVersionCode.setText("1");
+        iconBitmap = null;
+        imgIcon.setImageResource(R.mipmap.ic_launcher);
+        txtIcon.setText("Ohne Auswahl bekommt die App das Standard-Icon.");
+        resultButtons.setVisibility(View.GONE);
+        lastApk = null;
+        status("");
+        findViewById(R.id.scroll).scrollTo(0, 0);
     }
 
     /** Eigener Dateiname oder "<App-Name>-<Version>.apk"; unerlaubte Zeichen werden ersetzt. */

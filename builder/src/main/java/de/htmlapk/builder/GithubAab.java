@@ -52,7 +52,9 @@ public final class GithubAab {
             call("GET", "/repos/" + repo + "/actions/workflows/" + WORKFLOW, null);
         } catch (IOException e) {
             throw new IOException("Im Repository fehlt der Workflow .github/workflows/" + WORKFLOW
-                    + " (und scripts/apk2aab.sh). Kopiere beide aus github.com/sidmarween/htmlapk.");
+                    + ". Lege dein Repository als Kopie von github.com/" + MainActivity.SOURCE_REPO
+                    + " an („Use this template“) – dann ist alles Nötige enthalten. "
+                    + "Bei einem Fork musst du außerdem im Tab „Actions“ die Workflows aktivieren.");
         }
     }
 

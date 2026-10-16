@@ -14,18 +14,34 @@ android {
         applicationId 'de.htmlapk.builder'
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName '3.1'
+        versionCode 13
+        versionName '3.2'
     }
 
-    // Fester Debug-Schlüssel im Repo: so lassen sich neue Builds der App
-    // über die alte Version installieren (sonst wechselt der Schlüssel je CI-Lauf).
+    // Release-Signatur: Der Schlüssel liegt verschlüsselt in signing/release.p12,
+    // das Passwort kommt aus dem GitHub-Secret RELEASE_KEY_PASSWORD (Umgebungsvariable).
+    // Ohne Passwort (z. B. in Forks) wird mit einem einmaligen Test-Schlüssel signiert
+    // und der Workflow veröffentlicht nichts.
+    def releasePassword = System.getenv('RELEASE_KEY_PASSWORD')
+    def hasReleaseKey = releasePassword != null && !releasePassword.isEmpty()
+            && rootProject.file('signing/release.p12').exists()
     signingConfigs {
-        debug {
-            storeFile rootProject.file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+        release {
+            if (hasReleaseKey) {
+                storeFile rootProject.file('signing/release.p12')
+                storeType 'PKCS12'
+                storePassword releasePassword
+                keyAlias 'htmlapkbuilder'
+                keyPassword releasePassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
 

@@ -55,28 +55,37 @@ jobs:
           } 2>&1 | tee -a build-log.txt
 
       - name: Builder-App bauen (enthält die Vorlage)
+        env:
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          gradle :builder:assembleDebug --stacktrace 2>&1 | tee -a build-log.txt
+          if [ -n "$RELEASE_KEY_PASSWORD" ]; then
+            echo "HAS_RELEASE_KEY=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=Kein Release-Schlüssel::Secret RELEASE_KEY_PASSWORD fehlt – Test-Signatur, es wird nichts veröffentlicht."
+          fi
+          gradle :builder:assembleRelease --stacktrace 2>&1 | tee -a build-log.txt
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs builder/build/outputs/apk/release/builder-release.apk | head -3
 
       - name: Vorlage prüfen
         run: |
           unzip -l template/build/outputs/apk/release/template-release-unsigned.apk
-          unzip -l builder/build/outputs/apk/debug/builder-debug.apk | grep template.apk
+          unzip -l builder/build/outputs/apk/release/builder-release.apk | grep template.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: HtmlApkBuilder
           path: |
-            builder/build/outputs/apk/debug/builder-debug.apk
+            builder/build/outputs/apk/release/builder-release.apk
             builder/build/test-output/sample.apk
 
       - name: Als Release veröffentlichen
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && env.HAS_RELEASE_KEY == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp builder/build/outputs/apk/debug/builder-debug.apk HtmlApkBuilder.apk
+          cp builder/build/outputs/apk/release/builder-release.apk HtmlApkBuilder.apk
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest HtmlApkBuilder.apk \
             --title "HTML APK Builder (neuester Build)" \

@@ -22,14 +22,23 @@ und wird bei jedem Build mit der echten Vorlage getestet.
 
 ## App bauen (ohne PC, über GitHub)
 
-1. Dieses Projekt in ein GitHub-Repository hochladen.
-2. Der Workflow `.github/workflows/build.yml` startet automatisch (Tab **Actions**).
-3. Nach ca. 5 Minuten unter dem Lauf das Artefakt **HtmlApkBuilder** herunterladen.
-   Darin: `builder-debug.apk` (der Builder) und `sample.apk` (eine Test-App, die der
-   Builder in der CI erzeugt hat).
-4. `builder-debug.apk` auf dem Handy installieren.
+1. Der Workflow `.github/workflows/build.yml` startet bei jedem Push (Tab **Actions**).
+2. Mit dem Secret `RELEASE_KEY_PASSWORD` wird der Builder mit dem Release-Schlüssel
+   `signing/release.p12` signiert und unter **Releases → latest** als `HtmlApkBuilder.apk`
+   veröffentlicht.
+3. Ohne dieses Secret (z. B. in Kopien und Forks) wird nur getestet und mit einem einmaligen
+   Test-Schlüssel signiert – es wird nichts veröffentlicht.
 
-Mit Android Studio geht es auch: Projekt öffnen, Modul `builder` ausführen.
+`signing/release.p12` ist mit einem starken Passwort (AES-256) geschützt und ohne das
+Secret wertlos. Das Passwort gehört nur in das Secret und in einen Passwort-Manager.
+
+## AAB für Google Play
+
+Der Builder lädt die APK in ein temporäres Release des eigenen Repositorys, der Workflow
+`.github/workflows/aab.yml` wandelt sie mit `scripts/apk2aab.sh` (aapt2 + bundletool) um,
+und der Builder signiert das AAB anschließend **auf dem Handy**. Jeder Nutzer braucht dafür
+ein eigenes Repository: auf github.com „Use this template“ (oder Fork; dann im Tab „Actions“
+die Workflows aktivieren) und einen Fine-grained Token mit Contents + Actions „Read and write“.
 
 ## Benutzung
 
@@ -51,8 +60,8 @@ Beim ersten Bauen erzeugt der Builder einen eigenen Schlüssel (`signing.p12`, P
 lassen sich deine Apps nach einer Neuinstallation des Builders nicht mehr aktualisieren.
 Über „Signaturschlüssel importieren“ kannst du ihn zurückspielen.
 
-`debug.keystore` im Projekt signiert nur die Builder-App selbst, damit neue Versionen
-sich über alte installieren lassen.
+Der Builder selbst wird mit dem privaten Release-Schlüssel signiert (siehe oben). So kann
+niemand eine manipulierte Version als „Update“ über deine installierte unterschieben.
 
 ## Grenzen
 

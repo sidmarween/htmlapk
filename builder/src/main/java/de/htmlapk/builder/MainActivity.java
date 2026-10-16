@@ -56,6 +56,8 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
 
     public static final String EXTRA_PROJECT_ID = "projectId";
+    /** Original-Repository mit Workflow und Skript; dient als Vorlage für eigene Kopien. */
+    static final String SOURCE_REPO = "sidmarween/htmlapk";
 
     private static final int REQ_CONTENT = 1;
     private static final int REQ_ICON = 2;
@@ -947,16 +949,32 @@ public class MainActivity extends Activity {
         TextView help = new TextView(this);
         help.setTextSize(13);
         help.setTextColor(0xFF616161);
-        help.setText("So richtest du es einmalig ein:\n\n"
-                + "1. Ein GitHub-Repository mit den Dateien .github/workflows/aab.yml und "
-                + "scripts/apk2aab.sh – z. B. dein Repository „sidmarween/htmlapk“, dort sind sie schon drin.\n\n"
-                + "2. Auf github.com: Settings → Developer settings → Personal access tokens → "
-                + "Fine-grained tokens → Generate new token. Nur dieses Repository auswählen und bei "
-                + "Repository permissions „Contents“ und „Actions“ auf „Read and write“ stellen.\n\n"
-                + "3. Repository und Token hier eintragen. Der Token bleibt nur auf diesem Handy.");
+        help.setText("Die Umwandlung läuft kostenlos über GitHub Actions in deinem eigenen "
+                + "GitHub-Konto. So richtest du es einmalig ein:\n\n"
+                + "1. Eigene Kopie anlegen: Tippe unten auf „Kopie auf GitHub anlegen“ (oder öffne "
+                + "github.com/" + SOURCE_REPO + " und wähle „Use this template“). Gib ihr einen Namen, "
+                + "am besten „Private“, damit deine Apps nicht öffentlich sichtbar sind.\n\n"
+                + "2. Zugangs-Token erstellen: github.com → Profilbild → Settings → Developer settings → "
+                + "Personal access tokens → Fine-grained tokens → Generate new token. Bei „Repository "
+                + "access“ nur deine Kopie wählen, bei „Repository permissions“ Contents und Actions "
+                + "auf „Read and write“ stellen.\n\n"
+                + "3. Unten deine Kopie (z. B. deinname/htmlapk) und den Token eintragen.\n\n"
+                + "Der Token bleibt nur auf diesem Handy. Gib ihn niemandem weiter.");
         box.addView(help);
+        Button openGithub = new Button(this);
+        openGithub.setText("Kopie auf GitHub anlegen");
+        openGithub.setAllCaps(false);
+        openGithub.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://github.com/" + SOURCE_REPO + "/generate")));
+            } catch (ActivityNotFoundException e) {
+                toast("Kein Browser gefunden");
+            }
+        });
+        box.addView(openGithub);
         EditText repo = new EditText(this);
-        repo.setHint("benutzer/repository");
+        repo.setHint("deinname/htmlapk");
         repo.setSingleLine(true);
         repo.setText(prefs.getString("gh_repo", ""));
         box.addView(repo);

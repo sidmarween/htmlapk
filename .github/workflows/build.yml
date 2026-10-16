@@ -54,6 +54,25 @@ jobs:
             "$BT/aapt2" dump badging universal.apk | head -3
           } 2>&1 | tee -a build-log.txt
 
+      - name: Release-Schlüssel prüfen (zeigt nie das Passwort)
+        env:
+          PW_SECRET: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          PW_VAR_SET: ${{ vars.RELEASE_KEY_PASSWORD != '' }}
+        run: |
+          if [ -n "$PW_SECRET" ]; then
+            echo "Secret RELEASE_KEY_PASSWORD: gefunden (${#PW_SECRET} Zeichen)"
+            if keytool -list -keystore signing/release.p12 -storetype PKCS12 -storepass "$PW_SECRET" >/dev/null 2>&1; then
+              echo "Passwort passt zum Schlüssel"
+            else
+              echo "::error title=Release-Schlüssel::Das Secret ist gesetzt, aber das Passwort passt nicht (Tippfehler oder Leerzeichen?)."
+            fi
+          else
+            echo "::warning title=Release-Schlüssel::Secret RELEASE_KEY_PASSWORD nicht gefunden."
+          fi
+          if [ "$PW_VAR_SET" = "true" ]; then
+            echo "::warning title=Release-Schlüssel::RELEASE_KEY_PASSWORD ist als *Variable* angelegt (öffentlich lesbar!). Bitte löschen und als *Secret* anlegen."
+          fi
+
       - name: Builder-App bauen (enthält die Vorlage)
         env:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}

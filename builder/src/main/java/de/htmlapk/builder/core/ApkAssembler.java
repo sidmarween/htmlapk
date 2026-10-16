@@ -33,6 +33,8 @@ public final class ApkAssembler {
         public AxmlPatcher.Changes manifest = new AxmlPatcher.Changes();
         /** Pfade relativ zu www/, z. B. "index.html" oder "img/logo.png". Darf leer sein (URL-Modus). */
         public Map<String, byte[]> webFiles;
+        /** Zusätzliche Dateien unter assets/, z. B. "splash.png". */
+        public Map<String, byte[]> extraAssets;
         public String configJson;
         /** null = Icon der Vorlage behalten. */
         public IconRenderer icon;
@@ -76,6 +78,12 @@ public final class ApkAssembler {
             if (in.webFiles != null) {
                 for (Map.Entry<String, byte[]> f : in.webFiles.entrySet()) {
                     String name = "assets/www/" + f.getKey();
+                    if (written.add(name)) w.put(name, f.getValue(), false);
+                }
+            }
+            if (in.extraAssets != null) {
+                for (Map.Entry<String, byte[]> f : in.extraAssets.entrySet()) {
+                    String name = "assets/" + f.getKey();
                     if (written.add(name)) w.put(name, f.getValue(), false);
                 }
             }

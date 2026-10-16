@@ -63,10 +63,25 @@ public final class SigningKey {
     }
 
     public static SigningKey load(InputStream in) throws IOException, GeneralSecurityException {
+        return load(in, PASSWORD, null);
+    }
+
+    /** PKCS12 mit eigenem Passwort; alias == null: erster Eintrag mit privatem Schlüssel. */
+    public static SigningKey load(InputStream in, char[] password, String alias)
+            throws IOException, GeneralSecurityException {
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(in, PASSWORD);
-        String alias = ks.containsAlias(ALIAS) ? ALIAS : ks.aliases().nextElement();
-        PrivateKey key = (PrivateKey) ks.getKey(alias, PASSWORD);
+        ks.load(in, password);
+        if (alias == null || !ks.containsAlias(alias)) {
+            alias = null;
+            if (ks.containsAlias(ALIAS) && ks.isKeyEntry(ALIAS)) alias = ALIAS;
+            java.util.Enumeration<String> all = ks.aliases();
+            while (alias == null && all.hasMoreElements()) {
+                String a = all.nextElement();
+                if (ks.isKeyEntry(a)) alias = a;
+            }
+            if (alias == null) throw new GeneralSecurityException("Kein Schlüssel in der Datei");
+        }
+        PrivateKey key = (PrivateKey) ks.getKey(alias, password);
         X509Certificate cert = (X509Certificate) ks.getCertificate(alias);
         if (key == null || cert == null) throw new GeneralSecurityException("Kein Schlüssel in der Datei");
         return new SigningKey(key, cert);

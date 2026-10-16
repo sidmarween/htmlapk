@@ -23,6 +23,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -59,20 +60,19 @@ public class MainActivity extends Activity {
     private static final int REQ_CONTENT = 1;
     private static final int REQ_ICON = 2;
     private static final int REQ_SAVE_APK = 3;
-    private static final int REQ_EXPORT_KEY = 4;
-    private static final int REQ_IMPORT_KEY = 5;
+    private static final int REQ_KEY_EXPORT = 4;
+    private static final int REQ_KEY_IMPORT = 5;
+    private static final int REQ_SPLASH = 8;
     private static final int REQ_CROP = 6;
     private static final int REQ_EXPORT_PROJECT = 7;
 
-    private static final String[] ORIENTATION_LABELS = {"Automatisch", "Hochformat", "Querformat"};
-    private static final String[] ORIENTATION_VALUES = {"auto", "portrait", "landscape"};
 
     private EditText editUrl, editName, editPackage, editVersionName, editVersionCode, editFileName;
     private TextView txtContent, txtIcon, txtStatus, txtVersion;
     private ImageView imgIcon;
-    private CheckBox chkFullscreen, chkZoom, chkKeepScreenOn;
-    private CheckBox chkPermInternet, chkPermMic, chkPermCamera, chkPermLocation, chkPermVibrate;
-    private Spinner spinOrientation;
+    private OptionsForm form;
+    private KeyManager keys;
+    private String pendingKeyExportId;
     private Button btnBuild, btnCropIcon;
     private ProgressBar progress;
     private LinearLayout resultButtons;
@@ -119,22 +119,26 @@ public class MainActivity extends Activity {
         txtStatus = findViewById(R.id.txtStatus);
         txtVersion = findViewById(R.id.txtVersion);
         imgIcon = findViewById(R.id.imgIcon);
-        chkFullscreen = findViewById(R.id.chkFullscreen);
-        chkZoom = findViewById(R.id.chkZoom);
-        chkKeepScreenOn = findViewById(R.id.chkKeepScreenOn);
-        chkPermInternet = findViewById(R.id.chkPermInternet);
-        chkPermMic = findViewById(R.id.chkPermMic);
-        chkPermCamera = findViewById(R.id.chkPermCamera);
-        chkPermLocation = findViewById(R.id.chkPermLocation);
-        chkPermVibrate = findViewById(R.id.chkPermVibrate);
-        spinOrientation = findViewById(R.id.spinOrientation);
         btnBuild = findViewById(R.id.btnBuild);
         btnCropIcon = findViewById(R.id.btnCropIcon);
         progress = findViewById(R.id.progress);
         resultButtons = findViewById(R.id.resultButtons);
 
-        spinOrientation.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, ORIENTATION_LABELS));
+        keys = new KeyManager(getFilesDir());
+        form = new OptionsForm(this, findViewById(R.id.optionsContainer), keys, new OptionsForm.Host() {
+            @Override
+            public void pickSplashImage() {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("image/*");
+                startForResult(i, REQ_SPLASH);
+            }
+
+            @Override
+            public void manageKeys() {
+                showKeyManager();
+            }
+        });
 
         installWatchers();
         loadProjectIntoFields();
@@ -188,15 +192,8 @@ public class MainActivity extends Activity {
         editName.setText(p.name);
         editPackage.setText(p.pkg);
         editUrl.setText(p.url);
-        chkFullscreen.setChecked(p.fullscreen);
-        chkZoom.setChecked(p.zoom);
-        chkKeepScreenOn.setChecked(p.keepScreenOn);
-        spinOrientation.setSelection(Math.max(0, Math.min(2, p.orientation)));
-        chkPermInternet.setChecked(p.permInternet);
-        chkPermMic.setChecked(p.permMic);
-        chkPermCamera.setChecked(p.permCamera);
-        chkPermLocation.setChecked(p.permLocation);
-        chkPermVibrate.setChecked(p.permVibrate);
+        form.load(p);
+        form.setSplashImage(p.splashFile().isFile() ? BitmapFactory.decodeFile(p.splashFile().getPath()) : null);
 
         // Schon gebaut: nächste Version ist automatisch ein Update
         if (p.lastBuiltCode > 0 && p.versionCode <= p.lastBuiltCode) {
@@ -213,6 +210,7 @@ public class MainActivity extends Activity {
         }
 
         Bitmap icon = p.hasIcon() ? BitmapFactory.decodeFile(p.iconFile().getPath()) : null;
+        form.setAppIcon(icon);
         if (icon != null) {
             imgIcon.setImageBitmap(icon);
             txtIcon.setText("Icon: " + (p.iconSourceName != null ? p.iconSourceName : "eigenes Bild"));
@@ -251,15 +249,7 @@ public class MainActivity extends Activity {
             p.versionCode = Integer.parseInt(editVersionCode.getText().toString().trim());
         } catch (NumberFormatException ignored) {
         }
-        p.fullscreen = chkFullscreen.isChecked();
-        p.zoom = chkZoom.isChecked();
-        p.keepScreenOn = chkKeepScreenOn.isChecked();
-        p.orientation = spinOrientation.getSelectedItemPosition();
-        p.permInternet = chkPermInternet.isChecked();
-        p.permMic = chkPermMic.isChecked();
-        p.permCamera = chkPermCamera.isChecked();
-        p.permLocation = chkPermLocation.isChecked();
-        p.permVibrate = chkPermVibrate.isChecked();
+        // Optionen, Berechtigungen und Schlüssel schreibt OptionsForm direkt ins Projekt
         p.save();
     }
 
@@ -352,8 +342,7 @@ public class MainActivity extends Activity {
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         menu.add(0, 7, 0, "Projekt exportieren");
         menu.add(0, 6, 0, "Projekt löschen");
-        menu.add(0, 1, 0, "Signaturschlüssel sichern");
-        menu.add(0, 2, 0, "Signaturschlüssel importieren");
+        menu.add(0, 1, 0, "Schlüssel verwalten");
         menu.add(0, 3, 0, "Hilfe");
         return true;
     }
@@ -361,25 +350,9 @@ public class MainActivity extends Activity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
-            case 1: {
-                if (!keyFile().exists()) {
-                    toast("Es gibt noch keinen Schlüssel. Er entsteht beim ersten Bauen.");
-                    return true;
-                }
-                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("application/x-pkcs12");
-                i.putExtra(Intent.EXTRA_TITLE, "htmlapk-schluessel.p12");
-                startForResult(i, REQ_EXPORT_KEY);
+            case 1:
+                showKeyManager();
                 return true;
-            }
-            case 2: {
-                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("*/*");
-                startForResult(i, REQ_IMPORT_KEY);
-                return true;
-            }
             case 5:
                 startActivity(new Intent(this, InfoActivity.class));
                 return true;
@@ -416,9 +389,12 @@ public class MainActivity extends Activity {
                                 + "3. Alles wird im Projekt gespeichert. Für ein Update öffnest du das "
                                 + "Projekt wieder und tippst auf „APK bauen“ – die Versionsnummer wird "
                                 + "automatisch erhöht.\n\n"
-                                + "Alle Apps werden mit deinem eigenen Schlüssel signiert. Sichere ihn "
-                                + "über das Menü: Ohne ihn kannst du deine Apps nach einer Neuinstallation "
-                                + "des Builders nicht mehr aktualisieren. Passwort der Schlüsseldatei: htmlapk")
+                                + "4. Unter Anzeige, Splash-Screen, WebView und Berechtigungen stellst du "
+                                + "ein, wie sich die App verhält. Vor dem Bauen siehst du eine Zusammenfassung.\n\n"
+                                + "Alle Apps werden mit einem Schlüssel signiert (Abschnitt Signatur). Sichere "
+                                + "deine Schlüssel über „Schlüssel verwalten“ oder ein Backup im Hauptmenü: Ohne "
+                                + "sie kannst du deine Apps nach einer Neuinstallation des Builders nicht mehr "
+                                + "aktualisieren.")
                         .setPositiveButton("OK", null)
                         .show();
                 return true;
@@ -491,11 +467,16 @@ public class MainActivity extends Activity {
                 });
                 break;
             }
-            case REQ_EXPORT_KEY:
-                copyFileTo(keyFile(), uri, "Schlüssel gesichert (Passwort: htmlapk)");
+            case REQ_KEY_EXPORT: {
+                KeyManager.Entry e = keys.get(pendingKeyExportId);
+                if (e != null) copyFileTo(e.file, uri, "Schlüssel gesichert – Passwort: " + e.password);
                 break;
-            case REQ_IMPORT_KEY:
-                importKey(uri);
+            }
+            case REQ_KEY_IMPORT:
+                askImportPassword(uri);
+                break;
+            case REQ_SPLASH:
+                storeSplashImage(uri);
                 break;
         }
     }
@@ -539,17 +520,203 @@ public class MainActivity extends Activity {
         project.save();
     }
 
-    private void importKey(Uri uri) {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            byte[] data = ApkAssembler.readAll(in);
-            SigningKey.load(new java.io.ByteArrayInputStream(data)); // prüft Datei und Passwort
-            try (OutputStream out = new FileOutputStream(keyFile())) {
-                out.write(data);
+    // ------------------------------------------------------------ Splash-Bild
+
+    private void storeSplashImage(Uri uri) {
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                BitmapFactory.decodeStream(in, null, bounds);
             }
-            toast("Schlüssel importiert");
-        } catch (Exception e) {
-            toast("Import fehlgeschlagen: Datei muss eine .p12 mit Passwort \"htmlapk\" sein");
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2;
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = sample;
+            Bitmap bmp;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                bmp = BitmapFactory.decodeStream(in, null, o);
+            }
+            if (bmp == null) throw new IOException("Unbekanntes Bildformat");
+            int max = Math.max(bmp.getWidth(), bmp.getHeight());
+            if (max > 1024) {
+                float f = 1024f / max;
+                bmp = Bitmap.createScaledBitmap(bmp, Math.round(bmp.getWidth() * f),
+                        Math.round(bmp.getHeight() * f), true);
+            }
+            try (OutputStream out = new FileOutputStream(project.splashFile())) {
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
+            }
+            project.opts.splashCustomImage = true;
+            project.save();
+            form.load(project);
+            form.setSplashImage(bmp);
+        } catch (IOException e) {
+            toast("Bild konnte nicht gelesen werden: " + e.getMessage());
         }
+    }
+
+    // ---------------------------------------------------- Schlüssel verwalten
+
+    private void showKeyManager() {
+        final java.util.List<KeyManager.Entry> list = keys.list();
+        String[] items = new String[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            KeyManager.Entry e = list.get(i);
+            items[i] = (e.id.equals(project.keyId) ? "✓ " : "    ") + e.name
+                    + "\n      " + keys.fingerprint(e);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Signaturschlüssel")
+                .setItems(items, (d, which) -> showKeyActions(list.get(which)))
+                .setPositiveButton("Neuer Schlüssel", (d, w) -> askNewKey())
+                .setNeutralButton("Importieren", (d, w) -> {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("*/*");
+                    startForResult(i, REQ_KEY_IMPORT);
+                })
+                .setNegativeButton("Schließen", null)
+                .show();
+    }
+
+    private void showKeyActions(KeyManager.Entry e) {
+        java.util.List<String> actions = new java.util.ArrayList<>();
+        actions.add("Für dieses Projekt verwenden");
+        actions.add("Exportieren (sichern)");
+        if (!e.isDefault()) {
+            actions.add("Umbenennen");
+            actions.add("Löschen");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(e.name)
+                .setItems(actions.toArray(new String[0]), (d, which) -> {
+                    switch (actions.get(which)) {
+                        case "Für dieses Projekt verwenden":
+                            project.keyId = e.id;
+                            project.save();
+                            form.refreshKeys();
+                            toast("„" + e.name + "“ wird für dieses Projekt verwendet");
+                            break;
+                        case "Exportieren (sichern)":
+                            if (!e.exists()) {
+                                toast("Dieser Schlüssel entsteht erst beim ersten Bauen.");
+                                return;
+                            }
+                            pendingKeyExportId = e.id;
+                            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                            i.addCategory(Intent.CATEGORY_OPENABLE);
+                            i.setType("application/x-pkcs12");
+                            i.putExtra(Intent.EXTRA_TITLE, e.name.replaceAll("[\\\\/:*?\"<>|]", "_") + ".p12");
+                            startForResult(i, REQ_KEY_EXPORT);
+                            break;
+                        case "Umbenennen": {
+                            EditText name = new EditText(this);
+                            name.setText(e.name);
+                            new AlertDialog.Builder(this).setTitle("Umbenennen").setView(padded(name))
+                                    .setNegativeButton("Abbrechen", null)
+                                    .setPositiveButton("OK", (d2, w) -> {
+                                        try {
+                                            keys.rename(e.id, name.getText().toString());
+                                        } catch (IOException ex) {
+                                            toast(ex.getMessage());
+                                        }
+                                        form.refreshKeys();
+                                    }).show();
+                            break;
+                        }
+                        case "Löschen":
+                            new AlertDialog.Builder(this)
+                                    .setTitle("„" + e.name + "“ löschen?")
+                                    .setMessage("Apps, die mit diesem Schlüssel signiert sind, kannst du danach "
+                                            + "nicht mehr aktualisieren – außer du hast ihn exportiert.")
+                                    .setNegativeButton("Abbrechen", null)
+                                    .setPositiveButton("Löschen", (d2, w) -> {
+                                        keys.delete(e.id);
+                                        form.refreshKeys();
+                                    }).show();
+                            break;
+                    }
+                })
+                .show();
+    }
+
+    private void askNewKey() {
+        EditText name = new EditText(this);
+        name.setHint("Name, z. B. Meine Spiele");
+        name.setText(project.displayName());
+        new AlertDialog.Builder(this)
+                .setTitle("Neuen Schlüssel erstellen")
+                .setMessage("Ein eigener Schlüssel für eine App oder eine Gruppe von Apps.")
+                .setView(padded(name))
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Erstellen", (d, w) -> worker.execute(() -> {
+                    try {
+                        KeyManager.Entry e = keys.create(name.getText().toString());
+                        ui.post(() -> {
+                            project.keyId = e.id;
+                            project.save();
+                            form.refreshKeys();
+                            toast("Schlüssel „" + e.name + "“ erstellt und ausgewählt");
+                        });
+                    } catch (Exception ex) {
+                        ui.post(() -> toast("Fehler: " + ex.getMessage()));
+                    }
+                }))
+                .show();
+    }
+
+    private void askImportPassword(Uri uri) {
+        final byte[] data;
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            data = ApkAssembler.readAll(in);
+        } catch (IOException e) {
+            toast("Datei nicht lesbar");
+            return;
+        }
+        String fileName = displayName(uri).replaceAll("(?i)\\.(p12|pfx|bks|keystore|jks)$", "");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        EditText name = new EditText(this);
+        name.setHint("Name");
+        name.setText(fileName);
+        EditText pw = new EditText(this);
+        pw.setHint("Passwort");
+        pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        EditText alias = new EditText(this);
+        alias.setHint("Alias (optional)");
+        box.addView(name);
+        box.addView(pw);
+        box.addView(alias);
+        new AlertDialog.Builder(this)
+                .setTitle("Schlüssel importieren")
+                .setMessage("Unterstützt: .p12 / .pfx und .bks")
+                .setView(padded(box))
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Importieren", (d, w) -> worker.execute(() -> {
+                    try {
+                        KeyManager.Entry e = keys.importKey(name.getText().toString(), data,
+                                pw.getText().toString(), alias.getText().toString());
+                        ui.post(() -> {
+                            project.keyId = e.id;
+                            project.save();
+                            form.refreshKeys();
+                            toast("„" + e.name + "“ importiert und ausgewählt");
+                        });
+                    } catch (Exception ex) {
+                        ui.post(() -> toast("Import fehlgeschlagen: " + ex.getMessage()));
+                    }
+                }))
+                .show();
+    }
+
+    private View padded(View v) {
+        FrameLayout f = new FrameLayout(this);
+        int pad = Math.round(20 * getResources().getDisplayMetrics().density);
+        f.setPadding(pad, pad / 2, pad, 0);
+        f.addView(v);
+        return f;
     }
 
     // ------------------------------------------------------------- Bauen
@@ -586,41 +753,107 @@ public class MainActivity extends Activity {
             editPackage.setError("Ungültig. Beispiel: com.meinname.meinspiel");
             return;
         }
-        if (!url.isEmpty() && !chkPermInternet.isChecked()) {
-            chkPermInternet.setChecked(true);
+        if (!url.isEmpty() && !project.permInternet) {
+            project.permInternet = true;
+            form.load(project);
             toast("Für eine Website-URL ist Internet nötig – wurde aktiviert");
         }
+        if (project.opts.splashEnabled && project.opts.splashCustomImage && !project.splashFile().isFile()) {
+            project.opts.splashCustomImage = false;
+        }
         saveFieldsToProject();
+        showSummary(() -> runBuild(url, name, pkg, versionName, versionCode, apkName));
+    }
 
-        final Set<String> remove = new HashSet<>();
-        if (!chkPermInternet.isChecked()) {
+    private Set<String> permissionsToRemove(Project p) {
+        Set<String> remove = new HashSet<>();
+        if (!p.permInternet) {
             remove.add("android.permission.INTERNET");
             remove.add("android.permission.ACCESS_NETWORK_STATE");
         }
-        if (!chkPermMic.isChecked()) {
+        if (!p.permMic) {
             remove.add("android.permission.RECORD_AUDIO");
             remove.add("android.permission.MODIFY_AUDIO_SETTINGS");
         }
-        if (!chkPermCamera.isChecked()) remove.add("android.permission.CAMERA");
-        if (!chkPermLocation.isChecked()) {
+        if (!p.permCamera) remove.add("android.permission.CAMERA");
+        if (!p.permLocation) {
             remove.add("android.permission.ACCESS_FINE_LOCATION");
             remove.add("android.permission.ACCESS_COARSE_LOCATION");
         }
-        if (!chkPermVibrate.isChecked()) remove.add("android.permission.VIBRATE");
+        if (!p.permVibrate) remove.add("android.permission.VIBRATE");
+        if (!p.permNotifications) remove.add("android.permission.POST_NOTIFICATIONS");
+        return remove;
+    }
 
-        final boolean fullscreen = chkFullscreen.isChecked();
-        final boolean zoom = chkZoom.isChecked();
-        final boolean keepScreenOn = chkKeepScreenOn.isChecked();
-        final String orientation = ORIENTATION_VALUES[spinOrientation.getSelectedItemPosition()];
+    /** "Ist alles korrekt?" – Übersicht vor dem Bauen. */
+    private void showSummary(Runnable onConfirm) {
+        Project p = project;
+        de.htmlapk.builder.core.AppConfig c = p.opts;
+        java.util.List<String> perms = new java.util.ArrayList<>();
+        if (p.permInternet) perms.add("Internet");
+        if (p.permMic) perms.add("Mikrofon");
+        if (p.permCamera) perms.add("Kamera");
+        if (p.permLocation) perms.add("Standort");
+        if (p.permVibrate) perms.add("Vibration");
+        if (p.permNotifications) perms.add("Benachrichtigungen");
+        java.util.List<String> display = new java.util.ArrayList<>();
+        display.add("portrait".equals(c.orientation) ? "Hochformat"
+                : "landscape".equals(c.orientation) ? "Querformat" : "Automatische Ausrichtung");
+        if (c.fullscreen) display.add("Vollbild");
+        if (c.titleBar && !c.fullscreen) display.add("Titelleiste");
+        if (c.keepScreenOn) display.add("Bildschirm an");
+        if (c.cutout && c.fullscreen) display.add("Kamera-Aussparung");
+        if (c.desktopMode) display.add("Desktop-Modus");
+        if (c.zoom) display.add("Zoom");
+        if (c.watermark) display.add("Wasserzeichen");
+        java.util.List<String> web = new java.util.ArrayList<>();
+        if (c.pullToRefresh) web.add("Ziehen zum Aktualisieren");
+        if (c.offlinePage) web.add("Offline-Hinweis");
+        if (c.progressBar) web.add("Ladebalken");
+        if (c.backNavigation) web.add("Zurück in Web-Historie");
+        if (c.exitConfirm) web.add("Beenden bestätigen");
+        if (!c.javascript) web.add("JavaScript AUS");
+        if (!c.domStorage) web.add("localStorage AUS");
+        KeyManager.Entry key = keys.get(p.keyId);
+
+        String content = !p.url.isEmpty() ? p.url
+                : p.contentName != null ? p.contentName : "Webdateien";
+        StringBuilder sb = new StringBuilder();
+        sb.append("App-Name: ").append(editName.getText().toString().trim()).append('\n');
+        sb.append("Paket: ").append(editPackage.getText().toString().trim()).append('\n');
+        sb.append("Version: ").append(editVersionName.getText().toString().trim())
+                .append(" (").append(editVersionCode.getText().toString().trim()).append(")\n");
+        sb.append("Inhalt: ").append(content).append("\n\n");
+        sb.append("Anzeige: ").append(String.join(" · ", display)).append('\n');
+        sb.append("Icon: ").append(p.hasIcon() ? "Eigenes Bild" : "Standard").append('\n');
+        sb.append("Splash-Screen: ").append(!c.splashEnabled ? "Aus"
+                : (c.splashCustomImage ? "Eigenes Bild" : "App-Icon") + ", "
+                + (c.splashDuration / 1000.0 + " s").replace('.', ',')).append('\n');
+        sb.append("WebView: ").append(web.isEmpty() ? "Standard" : String.join(" · ", web)).append('\n');
+        sb.append("Berechtigungen: ").append(perms.isEmpty() ? "keine" : String.join(", ", perms)).append('\n');
+        sb.append("Schlüssel: ").append(key != null ? key.name : "Standard").append('\n');
+        sb.append("Datei: ").append(apkFileName(editFileName.getText().toString(),
+                editName.getText().toString().trim(), editVersionName.getText().toString().trim()));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Ist alles korrekt?")
+                .setMessage(sb.toString())
+                .setNegativeButton("Ändern", null)
+                .setPositiveButton("APK erstellen", (d, w) -> onConfirm.run())
+                .show();
+    }
+
+    private void runBuild(String url, String name, String pkg, String versionName, int versionCode,
+                          String apkName) {
         final Project p = project;
-
+        final Set<String> remove = permissionsToRemove(p);
+        if (building) return;
         setBusy(true);
         status("Baue " + name + " …");
 
         worker.execute(() -> {
             try {
-                File apk = build(p, url, name, pkg, versionName, versionCode,
-                        fullscreen, zoom, keepScreenOn, orientation, remove, apkName);
+                File apk = build(p, url, name, pkg, versionName, versionCode, remove, apkName);
                 // Im Projekt ablegen, damit sie später wieder installiert/geteilt werden kann
                 try (InputStream in = new FileInputStream(apk)) {
                     Project.copy(in, p.lastApkFile());
@@ -655,8 +888,7 @@ public class MainActivity extends Activity {
     }
 
     private File build(Project p, String url, String name, String pkg, String versionName,
-                       int versionCode, boolean fullscreen, boolean zoom, boolean keepScreenOn,
-                       String orientation, Set<String> removePermissions, String apkName) throws Exception {
+                       int versionCode, Set<String> removePermissions, String apkName) throws Exception {
         File work = new File(getCacheDir(), "work");
         work.mkdirs();
 
@@ -677,7 +909,7 @@ public class MainActivity extends Activity {
 
         if (!url.isEmpty()) {
             input.webFiles = null;
-            input.configJson = WebProject.configJson(url, fullscreen, orientation, zoom, keepScreenOn);
+            input.configJson = p.opts.toJson(url);
         } else {
             progressText("Dateien lesen …");
             byte[] bytes;
@@ -689,7 +921,7 @@ public class MainActivity extends Activity {
                     ? WebProject.fromZip(new java.io.ByteArrayInputStream(bytes))
                     : WebProject.fromHtml(bytes);
             input.webFiles = web.files;
-            input.configJson = WebProject.configJson(web.startPage, fullscreen, orientation, zoom, keepScreenOn);
+            input.configJson = p.opts.toJson(web.startPage);
         }
 
         final Bitmap icon = p.hasIcon() ? BitmapFactory.decodeFile(p.iconFile().getPath()) : null;
@@ -702,12 +934,19 @@ public class MainActivity extends Activity {
             };
         }
 
+        if (p.opts.splashEnabled && p.opts.splashCustomImage && p.splashFile().isFile()) {
+            try (InputStream in = new FileInputStream(p.splashFile())) {
+                input.extraAssets = new java.util.HashMap<>();
+                input.extraAssets.put("splash.png", ApkAssembler.readAll(in));
+            }
+        }
+
         progressText("APK zusammenbauen …");
         File unsigned = new File(work, "unsigned.apk");
         ApkAssembler.assemble(input, unsigned);
 
         progressText("Signieren …");
-        SigningKey key = SigningKey.loadOrCreate(keyFile(), "HTML APK Builder");
+        SigningKey key = keys.load(p.keyId);
         clearOutputDir();
         File signed = new File(OutputProvider.outputDir(this), apkFileName(apkName, name, versionName));
         ApkSigning.sign(unsigned, signed, key);
@@ -761,9 +1000,6 @@ public class MainActivity extends Activity {
         return base + ".apk";
     }
 
-    private File keyFile() {
-        return new File(getFilesDir(), "signing.p12");
-    }
 
     // -------------------------------------------------------- Ergebnis
 

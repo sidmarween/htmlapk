@@ -246,6 +246,7 @@ public class ProjectsActivity extends Activity {
                     StringBuilder msg = new StringBuilder();
                     msg.append(r.projects == 1 ? "1 Projekt importiert" : r.projects + " Projekte importiert");
                     if (r.keyImported) msg.append(", Signaturschlüssel übernommen");
+                    if (r.extraKeys > 0) msg.append(", ").append(r.extraKeys).append(" weitere Schlüssel");
                     if (r.keySkipped) msg.append(". Hinweis: Das Backup enthält einen anderen "
                             + "Signaturschlüssel als diesen Builder – dein vorhandener wurde behalten.");
                     runOnUiThread(() -> {

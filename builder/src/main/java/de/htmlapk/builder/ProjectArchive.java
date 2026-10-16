@@ -32,13 +32,15 @@ public final class ProjectArchive {
 
     /** Nur diese Dateien werden ex- und importiert (schützt auch vor manipulierten ZIPs). */
     private static final Set<String> FILES = new HashSet<>(Arrays.asList(
-            "project.json", "content.bin", "icon.png", "icon_source", "last.apk"));
+            "project.json", "content.bin", "icon.png", "icon_source", "last.apk", "splash.png"));
     private static final String KEY_ENTRY = "signing.p12";
+    private static final String KEY_FILE = "[a-z0-9]+\\.(p12|json)";
 
     public static final class ImportResult {
         public int projects;
         public boolean keyImported;
         public boolean keySkipped;
+        public int extraKeys;
     }
 
     private ProjectArchive() {}
@@ -56,6 +58,13 @@ public final class ProjectArchive {
                 addProjectFiles(zip, p.dir(), "projects/" + p.id + "/");
             }
             if (keyFile.isFile()) addFile(zip, keyFile, KEY_ENTRY);
+            // Zusätzliche Schlüssel aus der Schlüsselverwaltung
+            File[] keys = new File(c.getFilesDir(), "keys").listFiles();
+            if (keys != null) {
+                for (File k : keys) {
+                    if (k.getName().matches(KEY_FILE)) addFile(zip, k, "keys/" + k.getName());
+                }
+            }
         }
     }
 
@@ -85,6 +94,7 @@ public final class ProjectArchive {
 
         Map<String, File> groups = new LinkedHashMap<>();
         byte[] keyBytes = null;
+        int extraKeyCount = 0;
         try (ZipInputStream zip = new ZipInputStream(in)) {
             ZipEntry e;
             while ((e = zip.getNextEntry()) != null) {
@@ -92,6 +102,17 @@ public final class ProjectArchive {
                 String name = e.getName().replace('\\', '/');
                 if (name.equals(KEY_ENTRY)) {
                     keyBytes = ApkAssembler.readAll(new NonClosing(zip));
+                    continue;
+                }
+                if (name.startsWith("keys/") && name.substring(5).matches(KEY_FILE)) {
+                    File dest = new File(new File(c.getFilesDir(), "keys"), name.substring(5));
+                    dest.getParentFile().mkdirs();
+                    if (!dest.exists()) {   // vorhandene Schlüssel nie überschreiben
+                        try (OutputStream out = new FileOutputStream(dest)) {
+                            ApkAssembler.copy(zip, out);
+                        }
+                        if (dest.getName().endsWith(".p12")) extraKeyCount++;
+                    }
                     continue;
                 }
                 String group, base;
@@ -117,6 +138,7 @@ public final class ProjectArchive {
         }
 
         ImportResult r = new ImportResult();
+        r.extraKeys = extraKeyCount;
         SecureRandom rnd = new SecureRandom();
         for (File g : groups.values()) {
             if (!new File(g, "project.json").isFile()) continue;
@@ -149,7 +171,7 @@ public final class ProjectArchive {
             }
         }
         deleteRecursive(staging);
-        if (r.projects == 0 && !r.keyImported) {
+        if (r.projects == 0 && !r.keyImported && r.extraKeys == 0) {
             throw new IOException("Keine Projekte in der Datei gefunden");
         }
         return r;

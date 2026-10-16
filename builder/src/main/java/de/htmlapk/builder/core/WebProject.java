@@ -140,15 +140,15 @@ public final class WebProject {
         return "com.htmlapk." + n;
     }
 
+    /** Kurzform für Tests und alte Aufrufer; neue Optionen über {@link AppConfig}. */
     public static String configJson(String start, boolean fullscreen, String orientation,
                                     boolean zoom, boolean keepScreenOn) {
-        return "{\n"
-                + "  \"start\": " + jsonString(start) + ",\n"
-                + "  \"fullscreen\": " + fullscreen + ",\n"
-                + "  \"orientation\": " + jsonString(orientation) + ",\n"
-                + "  \"zoom\": " + zoom + ",\n"
-                + "  \"keepScreenOn\": " + keepScreenOn + "\n"
-                + "}\n";
+        AppConfig c = new AppConfig();
+        c.fullscreen = fullscreen;
+        c.orientation = orientation;
+        c.zoom = zoom;
+        c.keepScreenOn = keepScreenOn;
+        return c.toJson(start);
     }
 
     private static String jsonString(String s) {

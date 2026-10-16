@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 
 import de.htmlapk.builder.core.ApkAssembler;
+import de.htmlapk.builder.core.AppConfig;
 
 /**
  * Ein gespeichertes App-Projekt. Alles liegt in files/projects/&lt;id&gt;/:
@@ -38,9 +39,11 @@ public final class Project {
     public int versionCode = 1;
     public boolean nameManual, packageManual;
 
-    public boolean fullscreen, zoom, keepScreenOn;
-    public int orientation;
-    public boolean permInternet = true, permMic, permCamera, permLocation, permVibrate;
+    /** Alle Laufzeit-Optionen der App (Anzeige, Splash, WebView). */
+    public AppConfig opts = new AppConfig();
+    public boolean permInternet = true, permMic, permCamera, permLocation, permVibrate, permNotifications;
+    /** Signaturschlüssel (siehe KeyManager); "default" = Standardschlüssel des Builders. */
+    public String keyId = KeyManager.DEFAULT_ID;
 
     public int lastBuiltCode;
     public String lastBuiltName;
@@ -64,6 +67,7 @@ public final class Project {
     public File iconFile() { return new File(dir, "icon.png"); }
     public File iconSourceFile() { return new File(dir, "icon_source"); }
     public File lastApkFile() { return new File(dir, "last.apk"); }
+    public File splashFile() { return new File(dir, "splash.png"); }
 
     public boolean hasContent() { return contentFile().isFile() && contentFile().length() > 0; }
     public boolean hasIcon() { return iconFile().isFile(); }
@@ -111,10 +115,19 @@ public final class Project {
             p.versionCode = o.optInt("versionCode", 1);
             p.nameManual = o.optBoolean("nameManual");
             p.packageManual = o.optBoolean("packageManual");
-            p.fullscreen = o.optBoolean("fullscreen");
-            p.zoom = o.optBoolean("zoom");
-            p.keepScreenOn = o.optBoolean("keepScreenOn");
-            p.orientation = o.optInt("orientation");
+            JSONObject opts = o.optJSONObject("opts");
+            if (opts != null) {
+                readOptions(opts, p.opts);
+            } else {
+                // Projekte aus Version 2.0/2.1
+                p.opts.fullscreen = o.optBoolean("fullscreen");
+                p.opts.zoom = o.optBoolean("zoom");
+                p.opts.keepScreenOn = o.optBoolean("keepScreenOn");
+                int ori = o.optInt("orientation");
+                p.opts.orientation = ori == 1 ? "portrait" : ori == 2 ? "landscape" : "auto";
+            }
+            p.permNotifications = o.optBoolean("permNotifications");
+            p.keyId = o.optString("keyId", KeyManager.DEFAULT_ID);
             p.permInternet = o.optBoolean("permInternet", true);
             p.permMic = o.optBoolean("permMic");
             p.permCamera = o.optBoolean("permCamera");
@@ -145,10 +158,9 @@ public final class Project {
             o.put("versionCode", versionCode);
             o.put("nameManual", nameManual);
             o.put("packageManual", packageManual);
-            o.put("fullscreen", fullscreen);
-            o.put("zoom", zoom);
-            o.put("keepScreenOn", keepScreenOn);
-            o.put("orientation", orientation);
+            o.put("opts", writeOptions(opts));
+            o.put("permNotifications", permNotifications);
+            o.put("keyId", keyId);
             o.put("permInternet", permInternet);
             o.put("permMic", permMic);
             o.put("permCamera", permCamera);
@@ -168,6 +180,33 @@ public final class Project {
             if (!tmp.renameTo(json)) throw new IOException("rename");
         } catch (Exception ignored) {
             // Speichern ist best effort; beim nächsten Mal wird es erneut versucht
+        }
+    }
+
+    /** Speichert alle öffentlichen Felder von AppConfig (boolean/int/String) per Reflection. */
+    static JSONObject writeOptions(AppConfig c) throws org.json.JSONException {
+        JSONObject o = new JSONObject();
+        for (java.lang.reflect.Field f : AppConfig.class.getFields()) {
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+            try {
+                o.put(f.getName(), f.get(c));
+            } catch (IllegalAccessException ignored) {
+            }
+        }
+        return o;
+    }
+
+    static void readOptions(JSONObject o, AppConfig c) {
+        for (java.lang.reflect.Field f : AppConfig.class.getFields()) {
+            if (java.lang.reflect.Modifier.isStatic(f.getModifiers()) || !o.has(f.getName())) continue;
+            try {
+                Class<?> t = f.getType();
+                if (t == boolean.class) f.setBoolean(c, o.getBoolean(f.getName()));
+                else if (t == int.class) f.setInt(c, o.getInt(f.getName()));
+                else if (t == String.class) f.set(c, o.getString(f.getName()));
+            } catch (Exception ignored) {
+                // falscher Typ: Standardwert behalten
+            }
         }
     }
 

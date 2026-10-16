@@ -164,77 +164,12 @@
             style="@style/Hint"
             android:text="Ohne Auswahl bekommt die App das Standard-Icon." />
 
-        <!-- 4. Optionen -->
-        <TextView style="@style/Section" android:text="4 · Optionen" />
-
-        <CheckBox
-            android:id="@+id/chkFullscreen"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Vollbild (Statusleiste ausblenden)" />
-
-        <CheckBox
-            android:id="@+id/chkZoom"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Zoomen mit zwei Fingern erlauben" />
-
-        <CheckBox
-            android:id="@+id/chkKeepScreenOn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Bildschirm nicht automatisch ausschalten" />
-
+        <!-- 4.–8. Anzeige, Splash, WebView, Berechtigungen, Signatur: werden in OptionsForm erzeugt -->
         <LinearLayout
+            android:id="@+id/optionsContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Ausrichtung:" />
-
-            <Spinner
-                android:id="@+id/spinOrientation"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1" />
-        </LinearLayout>
-
-        <!-- 5. Berechtigungen -->
-        <TextView style="@style/Section" android:text="5 · Berechtigungen" />
-
-        <CheckBox
-            android:id="@+id/chkPermInternet"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Internet / Netzwerk" />
-        <CheckBox
-            android:id="@+id/chkPermMic"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Mikrofon" />
-        <CheckBox
-            android:id="@+id/chkPermCamera"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Kamera" />
-        <CheckBox
-            android:id="@+id/chkPermLocation"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Standort" />
-        <CheckBox
-            android:id="@+id/chkPermVibrate"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Vibration" />
-
-        <TextView
-            style="@style/Hint"
-            android:text="Die App fragt beim ersten Zugriff aus der Webseite nach (z. B. getUserMedia oder navigator.geolocation). Ohne Internet funktionieren nur die mitgelieferten Dateien." />
+            android:orientation="vertical" />
 
         <!-- Bauen -->
         <Button
@@ -243,7 +178,7 @@
             android:layout_height="56dp"
             android:layout_marginTop="20dp"
             android:backgroundTint="#E8622C"
-            android:text="APK bauen"
+            android:text="APK erstellen"
             android:textColor="#FFFFFF"
             android:textSize="17sp" />
 

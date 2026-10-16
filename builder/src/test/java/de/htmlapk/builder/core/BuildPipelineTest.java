@@ -66,7 +66,22 @@ public class BuildPipelineTest {
         in.manifest.removePermissions.add("android.permission.CAMERA");
         in.manifest.removePermissions.add("android.permission.VIBRATE");
         in.webFiles = web.files;
-        in.configJson = WebProject.configJson(web.startPage, true, "landscape", false, true);
+        AppConfig conf = new AppConfig();
+        conf.fullscreen = true;
+        conf.orientation = "landscape";
+        conf.keepScreenOn = true;
+        conf.splashEnabled = true;
+        conf.splashCustomImage = true;
+        conf.splashLoader = "bar";
+        conf.splashBg = "#112233";
+        conf.pullToRefresh = true;
+        conf.offlinePage = true;
+        conf.cacheMode = "no_cache";
+        conf.titleBarColor = "Quote\"Test";
+        in.configJson = conf.toJson(web.startPage);
+        in.extraAssets = new LinkedHashMap<>();
+        in.extraAssets.put("splash.png", solidPng(8, 4));
+        in.manifest.removePermissions.add("android.permission.POST_NOTIFICATIONS");
         Map<String, int[]> rendered = new LinkedHashMap<>();
         in.icon = (w, h) -> {
             rendered.put(w + "x" + h, new int[]{w, h});
@@ -97,6 +112,8 @@ public class BuildPipelineTest {
             assertTrue("RECORD_AUDIO fehlt: " + perms, perms.contains("android.permission.RECORD_AUDIO"));
             assertTrue("CAMERA nicht entfernt: " + perms, !perms.contains("android.permission.CAMERA"));
             assertTrue("VIBRATE nicht entfernt: " + perms, !perms.contains("android.permission.VIBRATE"));
+            assertTrue("POST_NOTIFICATIONS nicht entfernt: " + perms,
+                    !perms.contains("android.permission.POST_NOTIFICATIONS"));
             assertNotNull(z.getEntry("assets/www/index.html"));
             assertNotNull(z.getEntry("assets/www/js/app.js"));
             assertTrue(z.getEntry("assets/www/js/app.js") != null);
@@ -104,6 +121,11 @@ public class BuildPipelineTest {
                     StandardCharsets.UTF_8);
             assertTrue(cfg.contains("\"landscape\""));
             assertTrue(cfg.contains("\"keepScreenOn\": true"));
+            assertTrue(cfg.contains("\"loader\": \"bar\""));
+            assertTrue(cfg.contains("\"pullToRefresh\": true"));
+            assertTrue(cfg.contains("\"cacheMode\": \"no_cache\""));
+            assertTrue(cfg.contains("Quote\\\"Test"));
+            assertNotNull("splash.png fehlt", z.getEntry("assets/splash.png"));
             assertEquals(ZipEntry.STORED, z.getEntry("resources.arsc").getMethod());
         }
         assertEquals("Fünf Icon-Dichten erwartet: " + rendered.keySet(), 5, rendered.size());
@@ -193,5 +215,10 @@ public class BuildPipelineTest {
         assertEquals("2.10", WebProject.nextVersionName("2.9"));
         assertEquals("4", WebProject.nextVersionName("3"));
         assertEquals("beta", WebProject.nextVersionName("beta"));
+        assertEquals("#AABBCC", AppConfig.normalizeColor("abc"));
+        assertEquals("#0F1318", AppConfig.normalizeColor(" #0f1318 "));
+        assertEquals("#800F1318", AppConfig.normalizeColor("#800f1318"));
+        assertEquals(null, AppConfig.normalizeColor("#12"));
+        assertEquals(null, AppConfig.normalizeColor("rot"));
     }
 }

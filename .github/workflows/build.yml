@@ -41,6 +41,19 @@ jobs:
             "$BT/zipalign" -c -p 4 builder/build/test-output/sample.apk && echo "zipalign OK"
           } 2>&1 | tee -a build-log.txt
 
+      - name: AAB-Umwandlung testen (wie im Workflow „APK zu AAB“)
+        run: |
+          set -o pipefail
+          curl -sSfL -o bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          {
+            bash scripts/apk2aab.sh builder/build/test-output/sample.apk sample.aab "$BT/aapt2" bundletool.jar
+            java -jar bundletool.jar validate --bundle=sample.aab | head -8
+            java -jar bundletool.jar build-apks --bundle=sample.aab --output=sample.apks --mode=universal
+            unzip -o -q sample.apks universal.apk
+            "$BT/aapt2" dump badging universal.apk | head -3
+          } 2>&1 | tee -a build-log.txt
+
       - name: Builder-App bauen (enthält die Vorlage)
         run: |
           set -o pipefail

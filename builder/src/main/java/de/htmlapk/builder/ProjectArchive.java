@@ -41,6 +41,11 @@ public final class ProjectArchive {
         public boolean keyImported;
         public boolean keySkipped;
         public int extraKeys;
+        /** Herkunft, falls aus einer APK oder einem fremden Builder übernommen. */
+        public String foreignSource;
+        public String importedProjectId;
+        public ForeignImport.ForeignKey foreignKey;
+        public java.util.List<String> notes = new java.util.ArrayList<>();
     }
 
     private ProjectArchive() {}
@@ -87,6 +92,46 @@ public final class ProjectArchive {
      * Liest ein Einzelprojekt oder ein Backup. Jedes Projekt bekommt eine neue ID, damit
      * nichts überschrieben wird. Der Schlüssel wird nur übernommen, wenn noch keiner existiert.
      */
+    /**
+     * Importiert eine Datei und erkennt das Format selbst: Projekt/Backup dieses Builders,
+     * beliebige APK oder Projekt-Export von „HTML to APK“.
+     */
+    public static ImportResult importAny(Context c, InputStream in, String fileName, File keyFile)
+            throws Exception {
+        File tmp = new File(c.getCacheDir(), "import-input.bin");
+        try {
+            Project.copy(in, tmp);
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(tmp)) {
+                if (de.htmlapk.builder.core.ApkInspector.looksLikeApk(zip)) {
+                    zip.close();
+                    ForeignImport.Result fr = ForeignImport.fromApk(c, tmp, fileName);
+                    return foreign(fr, "APK");
+                }
+                if (ForeignImport.isHtmlToApkExport(zip)) {
+                    return foreign(ForeignImport.fromHtmlToApkExport(c, zip), "„HTML to APK“");
+                }
+            } catch (java.util.zip.ZipException e) {
+                throw new IOException("Die Datei ist keine ZIP- oder APK-Datei");
+            }
+            try (InputStream again = new java.io.FileInputStream(tmp)) {
+                return importArchive(c, again, keyFile);
+            }
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
+    }
+
+    private static ImportResult foreign(ForeignImport.Result fr, String source) {
+        ImportResult r = new ImportResult();
+        r.projects = 1;
+        r.foreignSource = source;
+        r.importedProjectId = fr.project.id;
+        r.foreignKey = fr.key;
+        r.notes.addAll(fr.notes);
+        return r;
+    }
+
     public static ImportResult importArchive(Context c, InputStream in, File keyFile) throws IOException {
         File staging = new File(c.getCacheDir(), "import");
         deleteRecursive(staging);

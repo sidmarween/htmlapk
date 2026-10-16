@@ -32,6 +32,7 @@ public final class AxmlPatcher {
     private static final int TYPE_INT_DEC = 0x10;
 
     private static final int ATTR_LABEL = 0x01010001;
+    private static final int ATTR_ICON = 0x01010002;
     private static final int ATTR_NAME = 0x01010003;
     private static final int ATTR_VERSION_CODE = 0x0101021b;
     private static final int ATTR_VERSION_NAME = 0x0101021c;
@@ -47,6 +48,71 @@ public final class AxmlPatcher {
     }
 
     private AxmlPatcher() {}
+
+    /** Kerndaten einer fremden APK. Referenzen (z. B. @string/app_name) als Ressourcen-ID. */
+    public static final class ManifestInfo {
+        public String packageName;
+        public int versionCode;
+        public String versionName;
+        public String label;
+        public int labelRes;
+        public int iconRes;
+    }
+
+    public static ManifestInfo readManifestInfo(byte[] axml) {
+        Parsed p = parse(axml);
+        ByteBuffer b = ByteBuffer.wrap(p.body).order(ByteOrder.LITTLE_ENDIAN);
+        ManifestInfo m = new ManifestInfo();
+        for (int pos = 0; pos < p.body.length; ) {
+            int type = b.getShort(pos) & 0xffff;
+            int size = b.getInt(pos + 4);
+            if (size <= 0) break;
+            if (type == RES_XML_START_ELEMENT_TYPE) {
+                String el = str(p, b.getInt(pos + 20));
+                for (Attr a : attrs(b, pos)) {
+                    int id = a.name >= 0 && a.name < p.resourceIds.length ? p.resourceIds[a.name] : 0;
+                    int vType = b.get(a.offset + 15) & 0xff;
+                    int data = b.getInt(a.offset + 16);
+                    String raw = a.raw >= 0 ? str(p, a.raw) : null;
+                    if ("manifest".equals(el)) {
+                        if ("package".equals(str(p, a.name))) m.packageName = raw;
+                        else if (id == ATTR_VERSION_CODE && vType >= 0x10 && vType <= 0x11) m.versionCode = data;
+                        else if (id == ATTR_VERSION_NAME) m.versionName = raw != null ? raw
+                                : (vType == TYPE_STRING ? str(p, data) : null);
+                    } else if ("application".equals(el)) {
+                        if (id == ATTR_LABEL) {
+                            if (raw != null) m.label = raw;
+                            else if (vType == TYPE_STRING) m.label = str(p, data);
+                            else if (vType == 0x01) m.labelRes = data;
+                        } else if (id == ATTR_ICON && vType == 0x01) {
+                            m.iconRes = data;
+                        }
+                    }
+                }
+            }
+            pos += size;
+        }
+        return m;
+    }
+
+    /** Erste Ressourcen-Referenz des Attributs attrId im Element elementName (z. B. adaptive Icons). */
+    public static int findReference(byte[] axml, String elementName, int attrId) {
+        Parsed p = parse(axml);
+        ByteBuffer b = ByteBuffer.wrap(p.body).order(ByteOrder.LITTLE_ENDIAN);
+        for (int pos = 0; pos < p.body.length; ) {
+            int type = b.getShort(pos) & 0xffff;
+            int size = b.getInt(pos + 4);
+            if (size <= 0) break;
+            if (type == RES_XML_START_ELEMENT_TYPE && elementName.equals(str(p, b.getInt(pos + 20)))) {
+                for (Attr a : attrs(b, pos)) {
+                    int id = a.name >= 0 && a.name < p.resourceIds.length ? p.resourceIds[a.name] : 0;
+                    if (id == attrId && (b.get(a.offset + 15) & 0xff) == 0x01) return b.getInt(a.offset + 16);
+                }
+            }
+            pos += size;
+        }
+        return 0;
+    }
 
     /** Liest den Paketnamen aus einem binären Manifest. */
     public static String readPackageName(byte[] axml) {

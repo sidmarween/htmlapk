@@ -14,8 +14,8 @@ android {
         applicationId 'de.htmlapk.builder'
         minSdk 26
         targetSdk 35
-        versionCode 13
-        versionName '3.2'
+        versionCode 14
+        versionName '3.3'
     }
 
     // Release-Signatur: Der Schlüssel liegt verschlüsselt in signing/release.p12,

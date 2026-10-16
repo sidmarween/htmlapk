@@ -139,7 +139,7 @@ public class ProjectsActivity extends Activity {
         menu.add(0, 1, 0, "Info")
                 .setIcon(R.drawable.ic_info)
                 .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        menu.add(0, 2, 0, "Projekt importieren");
+        menu.add(0, 2, 0, "Importieren (Projekt, Backup oder APK)");
         menu.add(0, 3, 0, "Alle Projekte sichern (Backup)");
         return true;
     }
@@ -242,7 +242,14 @@ public class ProjectsActivity extends Activity {
             worker.execute(() -> {
                 try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
                     if (in == null) throw new java.io.IOException("Datei nicht lesbar");
-                    ProjectArchive.ImportResult r = ProjectArchive.importArchive(this, in, keyFile);
+                    ProjectArchive.ImportResult r = ProjectArchive.importAny(this, in, displayName(uri), keyFile);
+                    if (r.foreignSource != null) {
+                        runOnUiThread(() -> {
+                            onResume();
+                            showForeignResult(r);
+                        });
+                        return;
+                    }
                     StringBuilder msg = new StringBuilder();
                     msg.append(r.projects == 1 ? "1 Projekt importiert" : r.projects + " Projekte importiert");
                     if (r.keyImported) msg.append(", Signaturschlüssel übernommen");
@@ -258,6 +265,83 @@ public class ProjectsActivity extends Activity {
                 }
             });
         }
+    }
+
+    /** Hinweise nach dem Import aus einer APK / einem fremden Builder, ggf. Schlüssel-Passwort abfragen. */
+    private void showForeignResult(ProjectArchive.ImportResult r) {
+        Project p = Project.load(this, r.importedProjectId);
+        String name = p != null ? p.displayName() : "App";
+        StringBuilder msg = new StringBuilder();
+        msg.append("„").append(name).append("“ wurde als Projekt angelegt");
+        if (p != null) msg.append(" (Paket ").append(p.pkg).append(", Version ").append(p.lastBuiltName).append(")");
+        msg.append(".\n\n");
+        for (String n : r.notes) {
+            if (!n.startsWith("Der Signaturschlüssel")) msg.append("• ").append(n).append('\n');
+        }
+        msg.append("\nWichtig für Updates: Android installiert ein Update nur, wenn es mit demselben "
+                + "Schlüssel signiert ist wie die installierte App. ");
+        if (r.foreignKey != null) {
+            msg.append("Der Export enthält den Schlüssel des anderen Builders – dafür brauchst du aber "
+                    + "dessen Passwort. Ohne Passwort deinstallierst du die alte App einmal vor dem "
+                    + "ersten Update (App-Daten gehen dabei verloren).");
+        } else {
+            msg.append("Eine APK enthält keinen Schlüssel. Deinstalliere die alte App deshalb einmal, bevor du "
+                    + "die neu gebaute installierst (App-Daten gehen dabei verloren) – danach "
+                    + "funktionieren Updates wieder normal.");
+        }
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle("Import aus " + r.foreignSource)
+                .setMessage(msg.toString())
+                .setPositiveButton("Projekt öffnen", (d, w) -> openProject(r.importedProjectId));
+        if (r.foreignKey != null) {
+            b.setNeutralButton("Schlüssel-Passwort eingeben", (d, w) -> askForeignKeyPassword(r.foreignKey));
+        }
+        b.setNegativeButton("Schließen", null).show();
+    }
+
+    private void askForeignKeyPassword(ForeignImport.ForeignKey k) {
+        android.widget.EditText pw = new android.widget.EditText(this);
+        pw.setHint("Passwort des Schlüssels");
+        pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        android.widget.FrameLayout f = new android.widget.FrameLayout(this);
+        f.setPadding(dp(20), dp(8), dp(20), 0);
+        f.addView(pw);
+        new AlertDialog.Builder(this)
+                .setTitle("Schlüssel übernehmen")
+                .setMessage("Das Passwort findest du ggf. in der Schlüsselverwaltung des anderen Builders.")
+                .setView(f)
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Übernehmen", (d, w) -> worker.execute(() -> {
+                    try {
+                        KeyManager km = new KeyManager(getFilesDir());
+                        KeyManager.Entry e = km.importKey(k.projectName + " (importiert)", k.data,
+                                pw.getText().toString(), k.alias);
+                        Project p = Project.load(this, k.projectId);
+                        if (p != null) {
+                            p.keyId = e.id;
+                            p.save();
+                        }
+                        runOnUiThread(() -> toast("Schlüssel übernommen – Updates der installierten App sind möglich"));
+                    } catch (Exception ex) {
+                        runOnUiThread(() -> new AlertDialog.Builder(this)
+                                .setTitle("Schlüssel nicht übernommen")
+                                .setMessage(ex.getMessage())
+                                .setPositiveButton("Nochmal", (d2, w2) -> askForeignKeyPassword(k))
+                                .setNegativeButton("Ohne Schlüssel weiter", null)
+                                .show());
+                    }
+                }))
+                .show();
+    }
+
+    private String displayName(android.net.Uri uri) {
+        try (android.database.Cursor c = getContentResolver().query(uri,
+                new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getString(0);
+        } catch (Exception ignored) {
+        }
+        return uri.getLastPathSegment();
     }
 
     @Override

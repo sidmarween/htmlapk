@@ -49,6 +49,8 @@ public class OutputProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
+        String n = uri.getLastPathSegment();
+        if (n != null && n.toLowerCase(java.util.Locale.ROOT).endsWith(".aab")) return "application/octet-stream";
         return "application/vnd.android.package-archive";
     }
 

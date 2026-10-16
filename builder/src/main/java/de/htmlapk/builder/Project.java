@@ -44,6 +44,8 @@ public final class Project {
     public boolean permInternet = true, permMic, permCamera, permLocation, permVibrate, permNotifications;
     /** Signaturschlüssel (siehe KeyManager); "default" = Standardschlüssel des Builders. */
     public String keyId = KeyManager.DEFAULT_ID;
+    /** true = AAB für Google Play (Umwandlung über GitHub), sonst APK. */
+    public boolean outputAab;
 
     public int lastBuiltCode;
     public String lastBuiltName;
@@ -128,6 +130,7 @@ public final class Project {
             }
             p.permNotifications = o.optBoolean("permNotifications");
             p.keyId = o.optString("keyId", KeyManager.DEFAULT_ID);
+            p.outputAab = o.optBoolean("outputAab");
             p.permInternet = o.optBoolean("permInternet", true);
             p.permMic = o.optBoolean("permMic");
             p.permCamera = o.optBoolean("permCamera");
@@ -161,6 +164,7 @@ public final class Project {
             o.put("opts", writeOptions(opts));
             o.put("permNotifications", permNotifications);
             o.put("keyId", keyId);
+            o.put("outputAab", outputAab);
             o.put("permInternet", permInternet);
             o.put("permMic", permMic);
             o.put("permCamera", permCamera);

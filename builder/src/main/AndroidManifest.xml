@@ -3,6 +3,8 @@
 
     <!-- Damit der Builder die fertige APK direkt zur Installation anbieten kann -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Nur für die AAB-Erstellung über GitHub -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="HTML APK Builder"

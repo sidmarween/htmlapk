@@ -44,6 +44,8 @@ public class OptionsForm {
     public interface Host {
         void pickSplashImage();
         void manageKeys();
+        void setupGithub();
+        boolean isGithubConfigured();
     }
 
     private interface Getter { boolean get(); }
@@ -70,6 +72,8 @@ public class OptionsForm {
     private Button btnSplashImage;
 
     // Signatur
+    private LinearLayout githubBox;
+    private TextView githubHint;
     private Spinner keySpinner;
     private TextView keyInfo;
     private List<KeyManager.Entry> keyEntries = new ArrayList<>();
@@ -358,7 +362,24 @@ public class OptionsForm {
     // ---------------------------------------------------------------- Signatur
 
     private void buildSigning(LinearLayout root) {
-        section(root, "8 · Signatur");
+        section(root, "8 · Ausgabe & Signatur");
+        spinner(root, "Format", new String[]{"APK", "AAB (Google Play)"}, new String[]{"apk", "aab"},
+                () -> p.outputAab ? "aab" : "apk", v -> {
+                    p.outputAab = "aab".equals(v);
+                    updateGithubHint();
+                });
+        githubBox = new LinearLayout(a);
+        githubBox.setOrientation(LinearLayout.VERTICAL);
+        githubHint = hint("");
+        githubBox.addView(githubHint);
+        Button gh = new Button(a);
+        gh.setText("GitHub für AAB einrichten");
+        gh.setAllCaps(false);
+        gh.setOnClickListener(v -> host.setupGithub());
+        githubBox.addView(gh);
+        root.addView(githubBox);
+        loaders.add(this::updateGithubHint);
+        sub(root, "Signaturschlüssel");
         keySpinner = new Spinner(a);
         root.addView(keySpinner);
         keyInfo = hint("");
@@ -395,6 +416,17 @@ public class OptionsForm {
         manage.setAllCaps(false);
         manage.setOnClickListener(v -> host.manageKeys());
         root.addView(manage);
+    }
+
+    public void updateGithubHint() {
+        if (p == null || githubBox == null) return;
+        githubBox.setVisibility(p.outputAab ? View.VISIBLE : View.GONE);
+        githubHint.setText(host.isGithubConfigured()
+                ? "Die APK wird auf dem Handy gebaut, auf GitHub in ein AAB umgewandelt und hier mit "
+                  + "deinem Schlüssel signiert. Für Google Play am besten einen eigenen Schlüssel nutzen "
+                  + "(= Upload-Schlüssel) und gut sichern."
+                : "Für AAB brauchst du einmalig ein GitHub-Repository mit dem Umwandlungs-Workflow "
+                  + "und einen Zugangs-Token.");
     }
 
     public void refreshKeys() {

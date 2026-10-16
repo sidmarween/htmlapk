@@ -1,0 +1,54 @@
+name: APK zu AAB
+
+# Wird vom HTML APK Builder auf dem Handy gestartet:
+# Der Builder lädt app.apk in ein temporäres Release (Tag aab-...), startet diesen Workflow,
+# holt sich danach app-unsigned.aab ab, signiert es auf dem Handy und löscht das Release wieder.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag des temporären Releases mit app.apk
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Tag prüfen
+        run: |
+          [[ "$TAG" =~ ^aab-[a-z0-9-]+$ ]] || { echo "Ungültiger Tag"; exit 1; }
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: APK holen
+        run: gh release download "$TAG" --pattern app.apk --dir in
+
+      - name: bundletool holen
+        run: curl -sSfL -o bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+
+      - name: In AAB umwandeln
+        run: |
+          set -o pipefail
+          AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2"
+          bash scripts/apk2aab.sh in/app.apk app-unsigned.aab "$AAPT2" bundletool.jar 2>&1 | tee log.txt
+          java -jar bundletool.jar validate --bundle=app-unsigned.aab | head -20
+
+      - name: AAB hochladen
+        run: gh release upload "$TAG" app-unsigned.aab --clobber
+
+      - name: Fehler melden
+        if: failure()
+        run: |
+          { echo "Umwandlung fehlgeschlagen:"; tail -40 log.txt 2>/dev/null; } > error.txt
+          gh release upload "$TAG" error.txt --clobber || true

@@ -138,6 +138,17 @@ public class MainActivity extends Activity {
             public void manageKeys() {
                 showKeyManager();
             }
+
+            @Override
+            public void setupGithub() {
+                showGithubSetup();
+            }
+
+            @Override
+            public boolean isGithubConfigured() {
+                return GithubAab.isValidRepo(prefs.getString("gh_repo", ""))
+                        && !prefs.getString("gh_token", "").isEmpty();
+            }
         });
 
         installWatchers();
@@ -165,7 +176,7 @@ public class MainActivity extends Activity {
             if (lastApk == null) return;
             Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("application/vnd.android.package-archive");
+            i.setType(lastIsAab() ? "application/octet-stream" : "application/vnd.android.package-archive");
             i.putExtra(Intent.EXTRA_TITLE, lastApk.getName());
             startForResult(i, REQ_SAVE_APK);
         });
@@ -343,6 +354,7 @@ public class MainActivity extends Activity {
         menu.add(0, 7, 0, "Projekt exportieren");
         menu.add(0, 6, 0, "Projekt löschen");
         menu.add(0, 1, 0, "Schlüssel verwalten");
+        menu.add(0, 8, 0, "GitHub für AAB einrichten");
         menu.add(0, 3, 0, "Hilfe");
         return true;
     }
@@ -352,6 +364,9 @@ public class MainActivity extends Activity {
         switch (item.getItemId()) {
             case 1:
                 showKeyManager();
+                return true;
+            case 8:
+                showGithubSetup();
                 return true;
             case 5:
                 startActivity(new Intent(this, InfoActivity.class));
@@ -451,7 +466,7 @@ public class MainActivity extends Activity {
                 }
                 break;
             case REQ_SAVE_APK:
-                copyFileTo(lastApk, uri, "APK gespeichert");
+                copyFileTo(lastApk, uri, lastIsAab() ? "AAB gespeichert" : "APK gespeichert");
                 break;
             case REQ_EXPORT_PROJECT: {
                 final File dir = project.dir();
@@ -832,8 +847,11 @@ public class MainActivity extends Activity {
         sb.append("WebView: ").append(web.isEmpty() ? "Standard" : String.join(" · ", web)).append('\n');
         sb.append("Berechtigungen: ").append(perms.isEmpty() ? "keine" : String.join(", ", perms)).append('\n');
         sb.append("Schlüssel: ").append(key != null ? key.name : "Standard").append('\n');
-        sb.append("Datei: ").append(apkFileName(editFileName.getText().toString(),
-                editName.getText().toString().trim(), editVersionName.getText().toString().trim()));
+        sb.append("Format: ").append(p.outputAab ? "AAB für Google Play (Umwandlung über GitHub)" : "APK")
+                .append('\n');
+        String file = apkFileName(editFileName.getText().toString(),
+                editName.getText().toString().trim(), editVersionName.getText().toString().trim());
+        sb.append("Datei: ").append(p.outputAab ? file.replaceAll("\\.apk$", ".aab") : file);
 
         new AlertDialog.Builder(this)
                 .setTitle("Ist alles korrekt?")
@@ -848,6 +866,13 @@ public class MainActivity extends Activity {
         final Project p = project;
         final Set<String> remove = permissionsToRemove(p);
         if (building) return;
+        final boolean aab = p.outputAab;
+        final String ghRepo = prefs.getString("gh_repo", "");
+        final String ghToken = prefs.getString("gh_token", "");
+        if (aab && (!GithubAab.isValidRepo(ghRepo) || ghToken.isEmpty())) {
+            showGithubSetup();
+            return;
+        }
         setBusy(true);
         status("Baue " + name + " …");
 
@@ -858,8 +883,9 @@ public class MainActivity extends Activity {
                 try (InputStream in = new FileInputStream(apk)) {
                     Project.copy(in, p.lastApkFile());
                 }
+                final File result = aab ? makeAab(apk, p, ghRepo, ghToken) : apk;
                 ui.post(() -> {
-                    lastApk = apk;
+                    lastApk = result;
                     setBusy(false);
                     p.lastBuiltCode = versionCode;
                     p.lastBuiltName = versionName;
@@ -874,9 +900,10 @@ public class MainActivity extends Activity {
                     loading = false;
                     saveFieldsToProject();
                     showVersionHint();
-                    resultButtons.setVisibility(View.VISIBLE);
-                    status("Fertig: " + apk.getName() + " (" + (apk.length() / 1024) + " KB)\n"
-                            + "Paket " + pkg + ", Version " + versionName + " (" + versionCode + ")");
+                    showResultButtons();
+                    status("Fertig: " + result.getName() + " (" + (result.length() / 1024) + " KB)\n"
+                            + "Paket " + pkg + ", Version " + versionName + " (" + versionCode + ")"
+                            + (aab ? "\nDiese Datei lädst du in der Google Play Console hoch." : ""));
                 });
             } catch (Throwable t) {
                 ui.post(() -> {
@@ -885,6 +912,106 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    /** APK über GitHub in ein AAB umwandeln lassen und hier mit dem Projektschlüssel signieren. */
+    private File makeAab(File apk, Project p, String repo, String token) throws Exception {
+        File work = new File(getCacheDir(), "work");
+        work.mkdirs();
+        File unsigned = new File(work, "unsigned.aab");
+        new GithubAab(repo, token).convert(apk, unsigned, this::progressText);
+        progressText("Signiere AAB …");
+        File out = new File(OutputProvider.outputDir(this), apk.getName().replaceAll("\\.apk$", "") + ".aab");
+        de.htmlapk.builder.core.AabSigning.sign(unsigned, out, keys.load(p.keyId));
+        //noinspection ResultOfMethodCallIgnored
+        unsigned.delete();
+        //noinspection ResultOfMethodCallIgnored
+        apk.delete();
+        return out;
+    }
+
+    private boolean lastIsAab() {
+        return lastApk != null && lastApk.getName().endsWith(".aab");
+    }
+
+    private void showResultButtons() {
+        resultButtons.setVisibility(View.VISIBLE);
+        findViewById(R.id.btnInstall).setVisibility(lastIsAab() ? View.GONE : View.VISIBLE);
+    }
+
+    // ------------------------------------------------------------ GitHub
+
+    private void showGithubSetup() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        TextView help = new TextView(this);
+        help.setTextSize(13);
+        help.setTextColor(0xFF616161);
+        help.setText("So richtest du es einmalig ein:\n\n"
+                + "1. Ein GitHub-Repository mit den Dateien .github/workflows/aab.yml und "
+                + "scripts/apk2aab.sh – z. B. dein Repository „sidmarween/htmlapk“, dort sind sie schon drin.\n\n"
+                + "2. Auf github.com: Settings → Developer settings → Personal access tokens → "
+                + "Fine-grained tokens → Generate new token. Nur dieses Repository auswählen und bei "
+                + "Repository permissions „Contents“ und „Actions“ auf „Read and write“ stellen.\n\n"
+                + "3. Repository und Token hier eintragen. Der Token bleibt nur auf diesem Handy.");
+        box.addView(help);
+        EditText repo = new EditText(this);
+        repo.setHint("benutzer/repository");
+        repo.setSingleLine(true);
+        repo.setText(prefs.getString("gh_repo", ""));
+        box.addView(repo);
+        EditText token = new EditText(this);
+        token.setHint("Token (github_pat_…)");
+        token.setSingleLine(true);
+        token.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        token.setText(prefs.getString("gh_token", ""));
+        box.addView(token);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(padded(box));
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("GitHub für AAB")
+                .setView(scroll)
+                .setNegativeButton("Abbrechen", null)
+                .setNeutralButton("Entfernen", (d, w) -> {
+                    prefs.edit().remove("gh_repo").remove("gh_token").apply();
+                    form.updateGithubHint();
+                })
+                .setPositiveButton("Prüfen & speichern", null)
+                .create();
+        dlg.setOnShowListener(x -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String r = repo.getText().toString().trim()
+                    .replaceFirst("^https?://github.com/", "").replaceAll("/+$", "");
+            String t = token.getText().toString().trim();
+            if (!GithubAab.isValidRepo(r)) {
+                repo.setError("Form: benutzer/repository");
+                return;
+            }
+            if (t.isEmpty()) {
+                token.setError("Bitte Token eintragen");
+                return;
+            }
+            v.setEnabled(false);
+            toast("Prüfe Verbindung …");
+            worker.execute(() -> {
+                try {
+                    new GithubAab(r, t).check();
+                    ui.post(() -> {
+                        prefs.edit().putString("gh_repo", r).putString("gh_token", t).apply();
+                        form.updateGithubHint();
+                        toast("GitHub verbunden – AAB-Erstellung ist bereit");
+                        dlg.dismiss();
+                    });
+                } catch (Exception e) {
+                    ui.post(() -> {
+                        v.setEnabled(true);
+                        new AlertDialog.Builder(this).setTitle("Verbindung fehlgeschlagen")
+                                .setMessage(e.getMessage()).setPositiveButton("OK", null).show();
+                    });
+                }
+            });
+        }));
+        dlg.show();
     }
 
     private File build(Project p, String url, String name, String pkg, String versionName,
@@ -1024,10 +1151,10 @@ public class MainActivity extends Activity {
     private void share() {
         if (lastApk == null) return;
         Intent i = new Intent(Intent.ACTION_SEND);
-        i.setType("application/vnd.android.package-archive");
+        i.setType(lastIsAab() ? "application/octet-stream" : "application/vnd.android.package-archive");
         i.putExtra(Intent.EXTRA_STREAM, OutputProvider.uriFor(lastApk));
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(Intent.createChooser(i, "APK teilen"));
+        startActivity(Intent.createChooser(i, lastIsAab() ? "AAB teilen" : "APK teilen"));
     }
 
     private void copyFileTo(File src, Uri dest, String okMessage) {
